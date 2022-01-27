@@ -365,7 +365,9 @@ v2f_error_t v2f_decorrelator_apply_jpeg_ls_prediction(
         return V2F_E_INVALID_PARAMETER;
     }
 
-    if(decorrelator->samples_per_row == 0) decorrelator->samples_per_row = sample_count;
+    if (decorrelator->samples_per_row == 0) {
+        decorrelator->samples_per_row = sample_count;
+    };
     const v2f_sample_t max_sample_value = decorrelator->max_sample_value;
 
     // Prediction starts with zero
@@ -438,7 +440,9 @@ v2f_error_t v2f_decorrelator_inverse_jpeg_ls_prediction(
         return V2F_E_INVALID_PARAMETER;
     }
 
-    if(decorrelator->samples_per_row == 0) decorrelator->samples_per_row = sample_count;
+    if (decorrelator->samples_per_row == 0) {
+        decorrelator->samples_per_row = sample_count;
+    }
     const v2f_sample_t max_sample_value = decorrelator->max_sample_value;
 
     // Prediction starts with zero
@@ -469,7 +473,7 @@ v2f_error_t v2f_decorrelator_inverse_jpeg_ls_prediction(
 
         left_neighbor = input_samples[sample_index];
         left_north_neighbor = north_neighbor;
-        if (sample_index + 1 >= decorrelator->samples_per_row){
+        if (sample_index + 1 >= decorrelator->samples_per_row) {
             north_neighbor = input_samples[sample_index + 1 -
                                            decorrelator->samples_per_row];
         }

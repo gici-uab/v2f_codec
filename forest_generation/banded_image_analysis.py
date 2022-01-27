@@ -23,6 +23,9 @@ import matplotlib.pyplot as plt
 analyzed_block_sizes = [64, 128, 256, 512]
 analyzed_symbol_list = list(range(4, 32))
 
+# Set to False to avoid performing a KL analysis.
+ADD_KL_ANALYSIS = False 
+
 
 class HorizontalRegion:
     """Abstract representation of a horizontal region spanning the a whole frame.
@@ -54,19 +57,32 @@ class SatellogicRegionsTable(enb.isets.ImagePropertiesTable):
                                   fill=fill, overwrite=overwrite,
                                   chunk_size=chunk_size)
 
+        summary_csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"persistence_summary",
+                                        f"persistence_summary_prediction.csv")
+
+        region_summary_table = RegionSummaryTable(
+            full_df=joint_df,
+            column_to_properties=SatellogicRegionsTable.column_to_properties,
+            group_by="version_name",
+            include_all_group=True,
+            csv_support_path=summary_csv_path
+        )
+        rst_df = region_summary_table.get_df()
+
         # Compute average distributions
         sum_prob = {}
         for img_prob in joint_df["symbol_prob_full_image"]:
             sum_prob = dict(collections.Counter(sum_prob) + collections.Counter(img_prob))
         avg_symbol_to_p = {k: v / len(joint_df) for (k, v) in sum_prob.items()}
 
-        # Compute KL divergence for each row
-        joint_df["kl_divergence_full_image"] = joint_df["symbol_prob_full_image"].apply(
-            lambda ip: sum(
-                [ip[symbol_value] * math.log2(ip[symbol_value] / avg_symbol_to_p[symbol_value])
-                 if symbol_value in ip else 0
-                 for symbol_value in avg_symbol_to_p.keys()])
-        )
+        if ADD_KL_ANALYSIS:
+            # Compute KL divergence for each row
+            joint_df["kl_divergence_full_image"] = joint_df["symbol_prob_full_image"].apply(
+                lambda ip: sum(
+                    [ip[symbol_value] * math.log2(ip[symbol_value] / avg_symbol_to_p[symbol_value])
+                     if symbol_value in ip else 0
+                     for symbol_value in avg_symbol_to_p.keys()])
+            )
 
         num_symbols = analyzed_symbol_list
         kl_divergence_n_symbols_dict = {}
@@ -86,122 +102,168 @@ class SatellogicRegionsTable(enb.isets.ImagePropertiesTable):
                  if symbol_value in ip else 0
                  for symbol_value in avg_symbol_to_p.keys()]))
 
-        kl_divergence = []
-        kl_divergence_inverse = []
-        for i in range(joint_df["kl_divergence_n_symbols_full_image"].shape[0]):
-            kl_divergence.append([kl_divergence_n_symbols_dict[n][i] for n in num_symbols])
-            kl_divergence[i] = dict(zip(num_symbols, kl_divergence[i]))
+        if ADD_KL_ANALYSIS:
+            kl_divergence = []
+            kl_divergence_inverse = []
+            for i in range(joint_df["kl_divergence_n_symbols_full_image"].shape[0]):
+                kl_divergence.append([kl_divergence_n_symbols_dict[n][i] for n in num_symbols])
+                kl_divergence[i] = dict(zip(num_symbols, kl_divergence[i]))
+    
+            joint_df["kl_divergence_n_symbols_full_image"] = kl_divergence
+    
+            for i in range(joint_df["kl_divergence_inverse_n_symbols_full_image"].shape[0]):
+                kl_divergence_inverse.append([kl_divergence_inverse_n_symbols_dict[n][i] for n in num_symbols])
+                kl_divergence_inverse[i] = dict(zip(num_symbols, kl_divergence_inverse[i]))
+    
+            joint_df["kl_divergence_inverse_n_symbols_full_image"] = kl_divergence_inverse
 
-        joint_df["kl_divergence_n_symbols_full_image"] = kl_divergence
-
-        for i in range(joint_df["kl_divergence_inverse_n_symbols_full_image"].shape[0]):
-            kl_divergence_inverse.append([kl_divergence_inverse_n_symbols_dict[n][i] for n in num_symbols])
-            kl_divergence_inverse[i] = dict(zip(num_symbols, kl_divergence_inverse[i]))
-
-        joint_df["kl_divergence_inverse_n_symbols_full_image"] = kl_divergence_inverse
 
         for r in self.regions:
             sum_prob = {}
-            for img_prob in joint_df[f"average_symbol_prob_{r.name}"]:
+            for img_prob in joint_df[f"symbol_prob_{r.name}"]:
                 sum_prob = collections.Counter(sum_prob) + collections.Counter(img_prob)
-            average_prob = {k: v / len(joint_df) for (k, v) in sum_prob.items()}
+            avg_symbol_to_p = {k: v / len(joint_df) for (k, v) in sum_prob.items()}
 
-            # Compute KL divergence for each row
-            joint_df[f"kl_divergence_{r.name}"] = joint_df[f"average_symbol_prob_{r.name}"].apply(
-                lambda ip: sum(
-                    [ip[symbol_value] * math.log2(ip[symbol_value] / avg_symbol_to_p[symbol_value])
-                     if symbol_value in ip else 0
-                     for symbol_value in avg_symbol_to_p.keys()])
-            )
-
-            kl_divergence_n_symbols_dict = {}
-            kl_divergence_inverse_n_symbols_dict = {}
-            for n in num_symbols:
-                kl_divergence_n_symbols_dict[n] = joint_df[f"average_symbol_prob_{r.name}"] \
-                    .apply(lambda ip: {k: v / sum(dict(collections.Counter(ip).most_common(n)).values()) for (k, v) in
-                                       dict(collections.Counter(ip).most_common(n)).items()}) \
-                    .apply(
-                    lambda ip: sum([ip[symbol_value] * math.log2(ip[symbol_value] / avg_symbol_to_p[symbol_value])
-                                    if symbol_value in ip else 0
-                                    for symbol_value in avg_symbol_to_p.keys()]))
-                kl_divergence_inverse_n_symbols_dict[n] = joint_df[f"average_symbol_prob_{r.name}"] \
-                    .apply(lambda ip: {k: v / sum(dict(collections.Counter(ip).most_common(n)).values()) for (k, v) in
-                                       dict(collections.Counter(ip).most_common(n)).items()}) \
-                    .apply(lambda ip: sum(
-                    [avg_symbol_to_p[symbol_value] * math.log2(avg_symbol_to_p[symbol_value] / ip[symbol_value])
-                     if symbol_value in ip else 0
-                     for symbol_value in avg_symbol_to_p.keys()]))
-
-            kl_divergence = []
-            kl_divergence_inverse = []
-            for i in range(joint_df[f"kl_divergence_n_symbols_{r.name}"].shape[0]):
-                kl_divergence.append([kl_divergence_n_symbols_dict[n][i] for n in num_symbols])
-                kl_divergence[i] = dict(zip(num_symbols, kl_divergence[i]))
-
-            joint_df[f"kl_divergence_n_symbols_{r.name}"] = kl_divergence
-
-            for i in range(joint_df[f"kl_divergence_inverse_n_symbols_{r.name}"].shape[0]):
-                kl_divergence_inverse.append([kl_divergence_inverse_n_symbols_dict[n][i] for n in num_symbols])
-                kl_divergence_inverse[i] = dict(zip(num_symbols, kl_divergence_inverse[i]))
-
-            joint_df[f"kl_divergence_inverse_n_symbols_{r.name}"] = kl_divergence_inverse
+            if ADD_KL_ANALYSIS:
+                # Compute KL divergence for each row
+                joint_df[f"kl_divergence_{r.name}"] = joint_df[f"symbol_prob_{r.name}"].apply(
+                    lambda ip: sum(
+                        [ip[symbol_value] * math.log2(ip[symbol_value] / avg_symbol_to_p[symbol_value])
+                         if symbol_value in ip else 0
+                         for symbol_value in avg_symbol_to_p.keys()])
+                )
+    
+                kl_divergence_n_symbols_dict = {}
+                kl_divergence_inverse_n_symbols_dict = {}
+                for n in num_symbols:
+                    kl_divergence_n_symbols_dict[n] = joint_df[f"symbol_prob_{r.name}"] \
+                        .apply(lambda ip: {k: v / sum(dict(collections.Counter(ip).most_common(n)).values()) for (k, v) in
+                                           dict(collections.Counter(ip).most_common(n)).items()}) \
+                        .apply(
+                        lambda ip: sum([ip[symbol_value] * math.log2(ip[symbol_value] / avg_symbol_to_p[symbol_value])
+                                        if symbol_value in ip else 0
+                                        for symbol_value in avg_symbol_to_p.keys()]))
+                    kl_divergence_inverse_n_symbols_dict[n] = joint_df[f"symbol_prob_{r.name}"] \
+                        .apply(lambda ip: {k: v / sum(dict(collections.Counter(ip).most_common(n)).values()) for (k, v) in
+                                           dict(collections.Counter(ip).most_common(n)).items()}) \
+                        .apply(lambda ip: sum(
+                        [avg_symbol_to_p[symbol_value] * math.log2(avg_symbol_to_p[symbol_value] / ip[symbol_value])
+                         if symbol_value in ip else 0
+                         for symbol_value in avg_symbol_to_p.keys()]))
+    
+                kl_divergence = []
+                kl_divergence_inverse = []
+                for i in range(joint_df[f"kl_divergence_n_symbols_{r.name}"].shape[0]):
+                    kl_divergence.append([kl_divergence_n_symbols_dict[n][i] for n in num_symbols])
+                    kl_divergence[i] = dict(zip(num_symbols, kl_divergence[i]))
+    
+                joint_df[f"kl_divergence_n_symbols_{r.name}"] = kl_divergence
+    
+                for i in range(joint_df[f"kl_divergence_inverse_n_symbols_{r.name}"].shape[0]):
+                    kl_divergence_inverse.append([kl_divergence_inverse_n_symbols_dict[n][i] for n in num_symbols])
+                    kl_divergence_inverse[i] = dict(zip(num_symbols, kl_divergence_inverse[i]))
+    
+                joint_df[f"kl_divergence_inverse_n_symbols_{r.name}"] = kl_divergence_inverse
 
             # Compute mean
-            joint_df[f"mean_{r.name}"] = joint_df[f"average_symbol_prob_{r.name}"].apply(
+            joint_df[f"mean_{r.name}"] = joint_df[f"symbol_prob_{r.name}"].apply(
                 lambda ip: sum(
                     [ip[symbol_value] * symbol_value
                      for symbol_value in ip.keys()]) / len(ip)
             )
 
             # Compute entropy
-            joint_df[f"entropy_{r.name}"] = joint_df[f"average_symbol_prob_{r.name}"].apply(
+            joint_df[f"entropy_{r.name}"] = joint_df[f"symbol_prob_{r.name}"].apply(
                 lambda ip: -sum(
                     [ip[symbol_value] * math.log2(ip[symbol_value])
                      for symbol_value in ip.keys()])
             )
 
             # Compute energy
-            joint_df[f"energy_{r.name}"] = joint_df[f"average_symbol_prob_{r.name}"].apply(
+            joint_df[f"energy_{r.name}"] = joint_df[f"symbol_prob_{r.name}"].apply(
                 lambda ip: math.sqrt(sum(
                     [ip[symbol_value] ** 2
                      for symbol_value in ip.keys()]))
             )
 
-        kl_divergence = {}
-        for n in analyzed_block_sizes:
-            sum_prob = {}
-            for img_prob in joint_df["symbol_prob_by_block_size"]:
-                # Compute average distributions
-                sum_prob = dict(collections.Counter(sum_prob) + collections.Counter(img_prob[n]))
-            average_prob = {k: v / len(joint_df) for (k, v) in sum_prob.items()}
-            kl_divergence[n] = {}
-            for j, img_prob in enumerate(joint_df["symbol_prob_by_block_size"]):
-                kl_divergence[n][j] = sum(
-                    [img_prob[n][i] * math.log2(img_prob[n][i] / average_prob[i])
-                     for i in range(0, 255) if i in img_prob[n].keys() and i in average_prob.keys()])
+        if ADD_KL_ANALYSIS:
+            kl_divergence = {}
+            for n in analyzed_block_sizes:
+                sum_prob = {}
+                for img_prob in joint_df["symbol_prob_by_block_size"]:
+                    # Compute average distributions
+                    sum_prob = dict(collections.Counter(sum_prob) + collections.Counter(img_prob[n]))
+                average_prob = {k: v / len(joint_df) for (k, v) in sum_prob.items()}
+                kl_divergence[n] = {}
+                for j, img_prob in enumerate(joint_df["symbol_prob_by_block_size"]):
+                    kl_divergence[n][j] = sum(
+                        [img_prob[n][i] * math.log2(img_prob[n][i] / average_prob[i])
+                         for i in range(0, 255) if i in img_prob[n].keys() and i in average_prob.keys()])
+    
+            kl_divergence_list = []
+            for i in range(joint_df["kl_divergence_by_block_size"].shape[0]):
+                kl_divergence_list.append([kl_divergence[n][i] for n in analyzed_block_sizes])
+                kl_divergence_list[i] = dict(zip(analyzed_block_sizes, kl_divergence_list[i]))
+    
+            joint_df["kl_divergence_by_block_size"] = kl_divergence_list
+    
+            for n in analyzed_block_sizes:
+                img_kl = []
+                for group, avg_symbol_to_p in zip(rst_df["group_label"], rst_df["avg_symbol_to_p"]):
+                    for index, row in joint_df[joint_df["version_name"]==group].iterrows():
+                        image = enb.isets.load_array_bsq(file_or_path=row["file_path"], image_properties_row=row)
+                        kl_divergence = []
+                        for j in range(0, image.shape[1], n):
+                            kl_divergence_2 = []
+                            for i in range(0, image.shape[0], n):
+                                block = image[i:i + n, j:j + n, :].flatten()
+                                if block.size < (n * n) / 2:
+                                    continue
+                                unique, counts = np.unique(block, return_counts=True)
+                                probabilities = dict(zip(unique, counts / block.size))
+                                assert abs(sum(probabilities.values()) - 1) < 1e-6, sum(probabilities.values())
+    
+                                kl_divergence_2.append(sum(
+                                    [probabilities[x] * math.log(probabilities[x] / avg_symbol_to_p[x])
+                                     for x in range(0, 255) if x in probabilities.keys() and x in avg_symbol_to_p.keys()]))
+    
+                            kl_divergence.append(kl_divergence_2)
+                        img_kl.append(kl_divergence)
+                joint_df[f"kl_divergence_matrix_block_size_{n}_full_image_full_dataset"] = img_kl
+    
+            for r in self.regions:
+                for n in analyzed_block_sizes:
+                    img_kl = []
+                    for group, avg_symbol_to_p in zip(rst_df["group_label"], rst_df[f"symbol_prob_{r.name}"]):
+                        for index, row in joint_df[joint_df["version_name"] == group].iterrows():
+                            image = enb.isets.load_array_bsq(file_or_path=row["file_path"], image_properties_row=row)
+                            img_region = image[:, r.y_min:r.y_max + 1, :]
+                            kl_divergence = []
+                            for j in range(0, img_region.shape[1], n):
+                                kl_divergence_2 = []
+                                for i in range(0, img_region.shape[0], n):
+                                    block = image[i:i + n, j:j + n, :].flatten()
+                                    if block.size < (n * n) / 2:
+                                        continue
+                                    unique, counts = np.unique(block, return_counts=True)
+                                    probabilities = dict(zip(unique, counts / block.size))
+                                    assert abs(sum(probabilities.values()) - 1) < 1e-6, sum(probabilities.values())
+    
+                                    kl_divergence_2.append(sum(
+                                        [probabilities[x] * math.log(probabilities[x] / avg_symbol_to_p[x])
+                                         for x in range(0, 255) if
+                                         x in probabilities.keys() and x in avg_symbol_to_p.keys()]))
+    
+                                kl_divergence.append(kl_divergence_2)
+                            img_kl.append(kl_divergence)
+                    joint_df[f"kl_divergence_matrix_block_size_{n}_{r.name}_full_dataset"] = img_kl
 
-        kl_divergence_list = []
-        for i in range(joint_df["kl_divergence_by_block_size"].shape[0]):
-            kl_divergence_list.append([kl_divergence[n][i] for n in analyzed_block_sizes])
-            kl_divergence_list[i] = dict(zip(analyzed_block_sizes, kl_divergence_list[i]))
-
-        joint_df["kl_divergence_by_block_size"] = kl_divergence_list
-
-        """# Compute mean
-        joint_df[f"mean_by_block_size_{n}"][j] = sum(
-            [img_prob[i] * i for i in range(0, 255) if i in img_prob.keys()]) / len(img_prob)
-
-        # Compute entropy
-        joint_df[f"entropy_by_block_size_{n}"][j] = -sum(
-            [img_prob[i] * math.log(img_prob[i], 2) for i in range(0, 255) if i in img_prob.keys()])
-
-        # Compute energy
-        joint_df[f"energy_by_block_size_{n}"][j] = math.sqrt(sum(
-            [img_prob[i] ** 2 for i in img_prob.keys()]))"""
 
         self.write_persistence(joint_df)
 
         return joint_df
+
+
 
     # For 4-band 5120x5120 images
     regions = [HorizontalRegion(0, 1199, "band0"),
@@ -291,7 +353,7 @@ class SatellogicRegionsTable(enb.isets.ImagePropertiesTable):
                                      label="Average symbol probability",
                                      has_dict_values=True),
          enb.atable.ColumnProperties(f"symbol_prob_by_block_size", has_dict_values=True)]
-        + [enb.atable.ColumnProperties(f"average_symbol_prob_{r.name}",
+        + [enb.atable.ColumnProperties(f"symbol_prob_{r.name}",
                                        label=f"Average symbol probability for {r.name}", has_dict_values=True)
            for r in regions]
         + [enb.atable.ColumnProperties(f"symbol_prob_noshadow",
@@ -318,11 +380,11 @@ class SatellogicRegionsTable(enb.isets.ImagePropertiesTable):
         row["symbol_prob_by_block_size"] = collections.defaultdict(list)
         for r in self.regions:
             row[f"symbol_prob_{r.name}"] = {}
-            row[f"average_symbol_prob_{r.name}"] = {}
+            row[f"symbol_prob_{r.name}"] = {}
             img_region = image[:, r.y_min:r.y_max + 1, :]
             unique_values, unique_count = np.unique(img_region, return_counts=True)
             total_count = sum(unique_count)
-            row[f"average_symbol_prob_{r.name}"] = {v: c / total_count for v, c in zip(unique_values, unique_count)}
+            row[f"symbol_prob_{r.name}"] = {v: c / total_count for v, c in zip(unique_values, unique_count)}
 
             for n in analyzed_block_sizes:
                 for i in range(0, img_region.shape[0], n):
@@ -346,126 +408,147 @@ class SatellogicRegionsTable(enb.isets.ImagePropertiesTable):
 
         row["symbol_prob_by_block_size"] = dict(row["symbol_prob_by_block_size"])
 
-    @enb.atable.column_function(
-        [enb.atable.ColumnProperties("kl_divergence_full_image", label="kl divergence full image")]
-        + [enb.atable.ColumnProperties(f"kl_divergence_{r.name}", label=f"kl_divergence_{r.name}") for r in regions]
-        + [enb.atable.ColumnProperties("kl_divergence_by_block_size", label=f"kl divergence by block size",
-                                       has_dict_values=True)])
-    def set_kl_divergence(self, file_path, row):
-        """Set a placeholder value for the KL divergence compared to the global pixel distribution.
-        This value is set by the experiment afterwards.
-        """
-        row[f"kl_divergence_full_image"] = -1
-        for r in self.regions:
-            row[f"kl_divergence_{r.name}"] = -1
-        row[f"kl_divergence_by_block_size"] = {}
+    if ADD_KL_ANALYSIS:
+        @enb.atable.column_function(
+            [enb.atable.ColumnProperties("kl_divergence_full_image", label="kl divergence full image")]
+            + [enb.atable.ColumnProperties(f"kl_divergence_{r.name}", label=f"kl_divergence_{r.name}") for r in regions]
+            + [enb.atable.ColumnProperties("kl_divergence_by_block_size", label=f"kl divergence by block size",
+                                           has_dict_values=True)])
+        def set_kl_divergence(self, file_path, row):
+            """Set a placeholder value for the KL divergence compared to the global pixel distribution.
+            This value is set by the experiment afterwards.
+            """
+            row[f"kl_divergence_full_image"] = -1
+            for r in self.regions:
+                row[f"kl_divergence_{r.name}"] = -1
+            row[f"kl_divergence_by_block_size"] = {}
 
-    @enb.atable.column_function(
-        [enb.atable.ColumnProperties("kl_divergence_n_symbols_full_image", label="kl_divergence_n_symbols_full_image",
-                                     has_dict_values=True)]
-        + [enb.atable.ColumnProperties(f"kl_divergence_n_symbols_{r.name}", label=f"kl_divergence_n_symbols_{r.name}",
-                                       has_dict_values=True) for r in regions])
-    def set_kl_divergence_n_symbols(self, file_path, row):
-        """Set a placeholder value for the KL divergence compared to the global pixel distribution.
-        This value is set by the experiment afterwards.
-        """
-        row[f"kl_divergence_n_symbols_full_image"] = {}
-        for r in self.regions:
-            row[f"kl_divergence_n_symbols_{r.name}"] = {}
-
-    @enb.atable.column_function(
-        [enb.atable.ColumnProperties("kl_divergence_inverse_n_symbols_full_image",
-                                     label="kl_divergence_inverse_n_symbols_full_image",
-                                     has_dict_values=True)]
-        + [enb.atable.ColumnProperties(f"kl_divergence_inverse_n_symbols_{r.name}",
-                                       label=f"kl_divergence_inverse_n_symbols_{r.name}",
-                                       has_dict_values=True) for r in regions])
-    def set_kl_divergence_inverse_n_symbols(self, file_path, row):
-        """Set a placeholder value for the KL divergence compared to the global pixel distribution.
-        This value is set by the experiment afterwards.
-        """
-        row[f"kl_divergence_inverse_n_symbols_full_image"] = {}
-        for r in self.regions:
-            row[f"kl_divergence_inverse_n_symbols_{r.name}"] = {}
-
-    @enb.atable.column_function(
-        [enb.atable.ColumnProperties(f"kl_divergence_matrix_block_size_{n}_full_image",
-                                     label=f"kl_divergence_matrix_block_size_{n}_full_image",
-                                     has_dict_values=False) for n in analyzed_block_sizes]
-        + [[enb.atable.ColumnProperties(f"kl_divergence_matrix_block_size_{n}_{r.name}",
-                                        label=f"kl_divergence_matrix_block_size_{n}_{r.name}",
-                                        has_dict_values=False) for n in analyzed_block_sizes] for r in regions]
-        + [enb.atable.ColumnProperties(f"energy_matrix_block_size_{n}_full_image",
-                                       label=f"energy_matrix_block_size_{n}_full_image",
-                                       has_dict_values=False) for n in analyzed_block_sizes]
-        + [enb.atable.ColumnProperties(f"entropy_matrix_block_size_{n}_full_image",
-                                       label=f"entropy_matrix_block_size_{n}_full_image",
-                                       has_dict_values=False) for n in analyzed_block_sizes]
-    )
-    def set_symbol_matrix_kl_energy_entropy_by_block(self, file_path, row):
-
-        image = enb.isets.load_array_bsq(file_or_path=file_path, image_properties_row=row)
-
-        unique, counts = np.unique(image, return_counts=True)
-        image_prob = dict(zip(unique, counts / image.size))
-
-        for n in analyzed_block_sizes:
-            row[f"energy_matrix_block_size_{n}_full_image"] = []
-            row[f"entropy_matrix_block_size_{n}_full_image"] = []
-            row[f"kl_divergence_matrix_block_size_{n}_full_image"] = []
-            for i in range(0, image.shape[0], n):
-                energy_2 = []
-                entropy_2 = []
-                kl_divergence_2 = []
-                for j in range(0, image.shape[1], n):
-                    block = image[i:i + n, j:j + n, :].flatten()
-                    if block.size < (n * n) / 2:
-                        continue
-                    unique, counts = np.unique(block, return_counts=True)
-                    probabilities = dict(zip(unique, counts / block.size))
-                    assert abs(sum(probabilities.values()) - 1) < 1e-6, sum(probabilities.values())
-
-                    energy_2.append(sum([probabilities[symbol_value] ** 2 for symbol_value in probabilities.keys()]))
-                    entropy_2.append(-sum([probabilities[symbol_value] * math.log2(probabilities[symbol_value])
-                                           for symbol_value in probabilities.keys()]))
-
-                    kl_divergence_2.append(sum(
-                        [probabilities[i] * math.log2(probabilities[i] / image_prob[i])
-                         for i in range(0, 255) if i in probabilities.keys() and i in image_prob.keys()]))
-
-                row[f"energy_matrix_block_size_{n}_full_image"].append(energy_2)
-                row[f"entropy_matrix_block_size_{n}_full_image"].append(entropy_2)
-                row[f"kl_divergence_matrix_block_size_{n}_full_image"].append(kl_divergence_2)
-
-        for r in self.regions:
-            img_region = image[:, r.y_min:r.y_max + 1, :]
-            unique_values, unique_count = np.unique(img_region, return_counts=True)
-            # total_count = sum(unique_count)
-            region_prob = dict(zip(unique_values, unique_count / img_region.size))
-
+        @enb.atable.column_function(
+            [enb.atable.ColumnProperties("kl_divergence_n_symbols_full_image", label="kl_divergence_n_symbols_full_image",
+                                         has_dict_values=True)]
+            + [enb.atable.ColumnProperties(f"kl_divergence_n_symbols_{r.name}", label=f"kl_divergence_n_symbols_{r.name}",
+                                           has_dict_values=True) for r in regions])
+        def set_kl_divergence_n_symbols(self, file_path, row):
+            """Set a placeholder value for the KL divergence compared to the global pixel distribution.
+            This value is set by the experiment afterwards.
+            """
+            row[f"kl_divergence_n_symbols_full_image"] = {}
+            for r in self.regions:
+                row[f"kl_divergence_n_symbols_{r.name}"] = {}
+    
+        @enb.atable.column_function(
+            [enb.atable.ColumnProperties("kl_divergence_inverse_n_symbols_full_image",
+                                         label="kl_divergence_inverse_n_symbols_full_image",
+                                         has_dict_values=True)]
+            + [enb.atable.ColumnProperties(f"kl_divergence_inverse_n_symbols_{r.name}",
+                                           label=f"kl_divergence_inverse_n_symbols_{r.name}",
+                                           has_dict_values=True) for r in regions])
+        def set_kl_divergence_inverse_n_symbols(self, file_path, row):
+            """Set a placeholder value for the KL divergence compared to the global pixel distribution.
+            This value is set by the experiment afterwards.
+            """
+            row[f"kl_divergence_inverse_n_symbols_full_image"] = {}
+            for r in self.regions:
+                row[f"kl_divergence_inverse_n_symbols_{r.name}"] = {}
+    
+        @enb.atable.column_function(
+            [enb.atable.ColumnProperties(f"kl_divergence_matrix_block_size_{n}_full_image",
+                                         label=f"kl_divergence_matrix_block_size_{n}_full_image",
+                                         has_dict_values=False) for n in analyzed_block_sizes]
+            + [[enb.atable.ColumnProperties(f"kl_divergence_matrix_block_size_{n}_{r.name}",
+                                            label=f"kl_divergence_matrix_block_size_{n}_{r.name}",
+                                            has_dict_values=False) for n in analyzed_block_sizes] for r in regions]
+            + [enb.atable.ColumnProperties(f"kl_divergence_matrix_block_size_{n}_full_image_full_dataset",
+                                           label=f"kl_divergence_matrix_block_size_{n}_full_image_full_dataset",
+                                           has_dict_values=False) for n in analyzed_block_sizes]
+            + [[enb.atable.ColumnProperties(f"kl_divergence_matrix_block_size_{n}_{r.name}_full_dataset",
+                                            label=f"kl_divergence_matrix_block_size_{n}_{r.name}_full_dataset",
+                                            has_dict_values=False) for n in analyzed_block_sizes] for r in regions]
+    
+            + [enb.atable.ColumnProperties(f"energy_matrix_block_size_{n}_full_image",
+                                           label=f"energy_matrix_block_size_{n}_full_image",
+                                           has_dict_values=False) for n in analyzed_block_sizes]
+            + [enb.atable.ColumnProperties(f"entropy_matrix_block_size_{n}_full_image",
+                                           label=f"entropy_matrix_block_size_{n}_full_image",
+                                           has_dict_values=False) for n in analyzed_block_sizes]
+        )
+        def set_symbol_matrix_kl_energy_entropy_by_block(self, file_path, row):
+    
+            image = enb.isets.load_array_bsq(file_or_path=file_path, image_properties_row=row)
+    
+            unique, counts = np.unique(image, return_counts=True)
+            image_prob = dict(zip(unique, counts / image.size))
+    
             for n in analyzed_block_sizes:
-                kl_divergence = []
-                for i in range(0, img_region.shape[0], n):
+                row[f"energy_matrix_block_size_{n}_full_image"] = []
+                row[f"entropy_matrix_block_size_{n}_full_image"] = []
+                row[f"kl_divergence_matrix_block_size_{n}_full_image"] = []
+                row[f"kl_divergence_matrix_block_size_{n}_full_image_full_dataset"] = []
+    
+                for i in range(0, image.shape[0], n):
+                    energy_2 = []
+                    entropy_2 = []
                     kl_divergence_2 = []
-                    for j in range(0, img_region.shape[1], n):
-                        block = img_region[i:i + n, j:j + n, :].flatten()
+                    full_2 = []
+    
+                    for j in range(0, image.shape[1], n):
+                        block = image[i:i + n, j:j + n, :].flatten()
                         if block.size < (n * n) / 2:
                             continue
                         unique, counts = np.unique(block, return_counts=True)
                         probabilities = dict(zip(unique, counts / block.size))
                         assert abs(sum(probabilities.values()) - 1) < 1e-6, sum(probabilities.values())
-
+    
+                        energy_2.append(sum([probabilities[symbol_value] ** 2
+                                                       for symbol_value in probabilities.keys()]))
+    
+                        entropy_2.append(-sum([probabilities[symbol_value] * math.log2(probabilities[symbol_value])
+                                               for symbol_value in probabilities.keys()]))
+    
                         kl_divergence_2.append(sum(
-                            [probabilities[i] * math.log2(probabilities[i] / region_prob[i])
-                             for i in range(0, 255) if i in probabilities.keys() and i in region_prob.keys()]))
-
-                    kl_divergence.append(kl_divergence_2)
-
-                row[f"kl_divergence_matrix_block_size_{n}_{r.name}"] = kl_divergence
-
-                """plt.clf()
-                kl_heatmap = sns.heatmap(kl_divergence).get_figure()
-                kl_heatmap.savefig(f"./kl_plots/kl_heatmap_block_size_{n}_{r.name}_image_{file_path.split('/')[-1]}.png")"""
+                            [probabilities[i] * math.log2(probabilities[i] / image_prob[i])
+                             for i in range(0, 255) if i in probabilities.keys() and i in image_prob.keys()]))
+    
+                        full_2.append(0)
+    
+                    row[f"energy_matrix_block_size_{n}_full_image"].append(energy_2)
+                    row[f"entropy_matrix_block_size_{n}_full_image"].append(entropy_2)
+                    row[f"kl_divergence_matrix_block_size_{n}_full_image"].append(kl_divergence_2)
+                    row[f"kl_divergence_matrix_block_size_{n}_full_image_full_dataset"].append(full_2)
+    
+            for r in self.regions:
+                img_region = image[:, r.y_min:r.y_max + 1, :]
+                unique_values, unique_count = np.unique(img_region, return_counts=True)
+                region_prob = dict(zip(unique_values, unique_count / img_region.size))
+    
+                for n in analyzed_block_sizes:
+                    row[f"kl_divergence_matrix_block_size_{n}_{r.name}"] = []
+                    row[f"kl_divergence_matrix_block_size_{n}_{r.name}_full_dataset"] = []
+    
+                    for i in range(0, img_region.shape[0], n):
+                        kl_divergence_2 = []
+                        full_2 = []
+    
+                        for j in range(0, img_region.shape[1], n):
+                            block = img_region[i:i + n, j:j + n, :].flatten()
+                            if block.size < (n * n) / 2:
+                                continue
+                            unique, counts = np.unique(block, return_counts=True)
+                            probabilities = dict(zip(unique, counts / block.size))
+                            assert abs(sum(probabilities.values()) - 1) < 1e-6, sum(probabilities.values())
+    
+                            kl_divergence_2.append(sum(
+                                [probabilities[i] * math.log2(probabilities[i] / region_prob[i])
+                                 for i in range(0, 255) if i in probabilities.keys() and i in region_prob.keys()]))
+    
+                            full_2.append(0)
+    
+                        row[f"kl_divergence_matrix_block_size_{n}_{r.name}"].append(kl_divergence_2)
+                        row[f"kl_divergence_matrix_block_size_{n}_{r.name}_full_dataset"].append(full_2)
+    
+                    """plt.clf()
+                    kl_heatmap = sns.heatmap(kl_divergence).get_figure()
+                    kl_heatmap.savefig(f"./kl_plots/kl_heatmap_block_size_{n}_{r.name}_image_{file_path.split('/')[-1]}.png")"""
 
     @enb.atable.column_function(
         [enb.atable.ColumnProperties("missing_probabilities_n_symbols_full_image",
@@ -492,7 +575,6 @@ class SatellogicRegionsTable(enb.isets.ImagePropertiesTable):
         row["missing_probabilities_n_symbols_full_image"] = p
 
         for r in self.regions:
-            row[f"symbol_prob_{r.name}"] = {}
             img_region = image[:, r.y_min:r.y_max + 1, :]
             unique_values, unique_count = np.unique(img_region, return_counts=True)
             probabilities = dict(zip(unique_values, unique_count / img_region.size))
@@ -516,10 +598,6 @@ class SatellogicRegionsTable(enb.isets.ImagePropertiesTable):
         for k, v in replacement_dict.items():
             version_name = version_name.replace(k, v)
         return version_name
-
-
-# TODO: Complete the RegionSummaryTable class taking code from SatellogicRegionsTable.get_df
-# (after it calls joint_df = super().get_df())
 
 class RegionSummaryTable(enb.atable.SummaryTable):
     """Summary table for SatellogicRegionsTable.
@@ -545,87 +623,83 @@ class RegionSummaryTable(enb.atable.SummaryTable):
             sum_prob = dict(collections.Counter(sum_prob) + collections.Counter(img_prob))
         return {k: v / len(df) for (k, v) in sum_prob.items()}
 
-    @enb.atable.column_function(
-        [enb.atable.ColumnProperties("kl_divergence_full_image",
-                                     label="kl_divergence_full_image",
-                                     has_dict_values=False)]
-        + [enb.atable.ColumnProperties(f"kl_divergence_{r.name}",
-                                       label=f"kl_divergence_{r.name}",
-                                       has_dict_values=False) for r in regions])
-    def column_kl_divergence(self, index, row):
-        """Calculate the average kl-divergence of all images for full image and each region.
-        """
-        df = self.label_to_df[index]
-
-        sum_kl = 0
-        for kl in df["kl_divergence_full_image"]:
-            sum_kl += kl
-        row["kl_divergence_full_image"] = sum_kl / len(df)
-
-        for r in self.regions:
+    if ADD_KL_ANALYSIS:
+        @enb.atable.column_function(
+            [enb.atable.ColumnProperties("kl_divergence_full_image",
+                                         label="kl_divergence_full_image",
+                                         has_dict_values=False)]
+            + [enb.atable.ColumnProperties(f"kl_divergence_{r.name}",
+                                           label=f"kl_divergence_{r.name}",
+                                           has_dict_values=False) for r in regions])
+        def column_kl_divergence(self, index, row):
+            """Calculate the average kl-divergence of all images for full image and each region.
+            """
+            df = self.label_to_df[index]
+    
             sum_kl = 0
-            for kl in df[f"kl_divergence_{r.name}"]:
+            for kl in df["kl_divergence_full_image"]:
                 sum_kl += kl
-            row[f"kl_divergence_{r.name}"] = sum_kl / len(df)
+            row["kl_divergence_full_image"] = sum_kl / len(df)
+    
+            for r in self.regions:
+                sum_kl = 0
+                for kl in df[f"kl_divergence_{r.name}"]:
+                    sum_kl += kl
+                row[f"kl_divergence_{r.name}"] = sum_kl / len(df)
+    
+        @enb.atable.column_function(
+            [enb.atable.ColumnProperties("kl_divergence_by_block_size",
+                                         label="kl_divergence_by_block_size",
+                                         has_dict_values=True)])
+        def column_kl_divergence_by_block_size(self, index, row):
+            """Calculate the following kl-divergence full image for all images
+            """
+            df = self.label_to_df[index]
+    
+            sum_kl = {}
+            for img_prob in df["kl_divergence_by_block_size"]:
+                sum_kl = dict(collections.Counter(sum_kl) + collections.Counter(img_prob))
+            row["kl_divergence_by_block_size"] = {k: v / len(df) for (k, v) in sum_kl.items()}
+    
+        @enb.atable.column_function(
+            [enb.atable.ColumnProperties("kl_divergence_n_symbols_full_image", label="kl_divergence_n_symbols_full_image",
+                                         has_dict_values=True)]
+            + [enb.atable.ColumnProperties(f"kl_divergence_n_symbols_{r.name}", label=f"kl_divergence_n_symbols_{r.name}",
+                                           has_dict_values=True) for r in regions])
+        def column_kl_divergence_n_symbols(self, index, row):
+            """Calculate the following kl-divergence full image for all images
+            """
+            df = self.label_to_df[index]
+    
+            sum_kl = {}
+            for img_prob in df["kl_divergence_n_symbols_full_image"]:
+                sum_kl = dict(collections.Counter(sum_kl) + collections.Counter(img_prob))
+            row["kl_divergence_n_symbols_full_image"] = {k: v / len(df) for (k, v) in sum_kl.items()}
+    
+            for r in self.regions:
+                sum_kl = {}
+                for img_prob in df[f"kl_divergence_n_symbols_{r.name}"]:
+                    sum_kl = dict(collections.Counter(sum_kl) + collections.Counter(img_prob))
+                row[f"kl_divergence_n_symbols_{r.name}"] = {k: v / len(df) for (k, v) in sum_kl.items()}
 
     @enb.atable.column_function(
-        [enb.atable.ColumnProperties("kl_divergence_by_block_size",
-                                     label="kl_divergence_by_block_size",
-                                     has_dict_values=True)])
-    def column_kl_divergence_by_block_size(self, index, row):
-        """Calculate the following kl-divergence full image for all images
-        """
-        df = self.label_to_df[index]
-
-        sum_kl = {}
-        for img_prob in df["kl_divergence_by_block_size"]:
-            sum_kl = dict(collections.Counter(sum_kl) + collections.Counter(img_prob))
-        row["kl_divergence_by_block_size"] = {k: v / len(df) for (k, v) in sum_kl.items()}
-
-    @enb.atable.column_function(
-        [enb.atable.ColumnProperties("kl_divergence_n_symbols_full_image", label="kl_divergence_n_symbols_full_image",
+        [enb.atable.ColumnProperties("symbol_prob_full_image", label="symbol_prob_full_image",
                                      has_dict_values=True)]
-        + [enb.atable.ColumnProperties(f"kl_divergence_n_symbols_{r.name}", label=f"kl_divergence_n_symbols_{r.name}",
+        + [enb.atable.ColumnProperties(f"symbol_prob_{r.name}", label=f"symbol_prob_{r.name}",
                                        has_dict_values=True) for r in regions])
-    def column_kl_divergence_n_symbols(self, index, row):
-        """Calculate the following kl-divergence full image for all images
-        """
+    def column_probability_distribution(self, index, row):
+        """Calculate the average of symbol probabilities for all images"""
         df = self.label_to_df[index]
 
-        sum_kl = {}
-        for img_prob in df["kl_divergence_n_symbols_full_image"]:
-            sum_kl = dict(collections.Counter(sum_kl) + collections.Counter(img_prob))
-        row["kl_divergence_n_symbols_full_image"] = {k: v / len(df) for (k, v) in sum_kl.items()}
+        sum_prob = {}
+        for img_prob in df["symbol_prob_full_image"]:
+            sum_prob = dict(collections.Counter(sum_prob) + collections.Counter(img_prob))
+        row["symbol_prob_full_image"] = {k: v / len(df) for (k, v) in sum_prob.items()}
 
         for r in self.regions:
-            sum_kl = {}
-            for img_prob in df[f"kl_divergence_n_symbols_{r.name}"]:
-                sum_kl = dict(collections.Counter(sum_kl) + collections.Counter(img_prob))
-            row[f"kl_divergence_n_symbols_{r.name}"] = {k: v / len(df) for (k, v) in sum_kl.items()}
-
-    # TODO: cleanup
-    """@enb.atable.column_function(
-        [enb.atable.ColumnProperties(f"kl_divergence_matrix_block_size_{n}_full_image",
-                                     label=f"kl_divergence_matrix_block_size_{n}_full_image",
-                                     has_dict_values=False) for n in [16, 32, 64, 128]]
-        + [[enb.atable.ColumnProperties(f"kl_divergence_matrix_block_size_{n}_{r.name}",
-                                     label=f"kl_divergence_matrix_block_size_{n}_{r.name}",
-                                     has_dict_values=False) for n in [16, 32, 64, 128]] for r in regions]
-        + [enb.atable.ColumnProperties(f"energy_matrix_block_size_{n}_full_image",
-                                     label=f"energy_matrix_block_size_{n}_full_image",
-                                     has_dict_values=False) for n in [16, 32, 64, 128]]
-        + [enb.atable.ColumnProperties(f"entropy_matrix_block_size_{n}_full_image",
-                                       label=f"entropy_matrix_block_size_{n}_full_image",
-                                       has_dict_values=False) for n in [16, 32, 64, 128]]
-    )
-    def column_matrix_kl_energy_entropy_by_block(self, index, row):
-        df = self.label_to_df[index]
-
-        for n in [128]:
-            print("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
-            print(sum([np.array(x) for x in df[f"kl_divergence_matrix_block_size_{n}_full_image"]]))
-            row[f"kl_divergence_matrix_block_size_{n}_full_image"] = \
-                np.sum([np.array(x) for x in df[f"kl_divergence_matrix_block_size_{n}_full_image"]]) / len(df)"""
+            for img_prob in df[f"symbol_prob_{r.name}"]:
+                sum_prob = dict(collections.Counter(sum_prob) + collections.Counter(img_prob))
+            row[f"symbol_prob_{r.name}"] = {k: v / len(df) for (k, v) in sum_prob.items()}
 
 
 def map_predicted_sample(sample, prediction, max_sample_value):
@@ -714,7 +788,7 @@ class NWPredictorVersion(PredictorVersion):
 class JLSPredictorVersion(PredictorVersion):
     """JPEG-LS predictor.
     """
-    version_name = "JPEG-LS"
+    version_name = "JLS"
     so_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "jpeg-ls.so")
 
     def __init__(self, original_base_dir, version_base_dir):
@@ -922,7 +996,8 @@ class ShadowOutRegionVersion(PredictorVersion):
             print(f"[watch] {self.__class__.__name__}::{input_path}->{output_path}={(input_path, output_path)}")
 
         # Read original image
-        img = enb.isets.load_array_bsq(file_or_path=input_path, image_properties_row=row)
+        img = enb.isets.load_array_bsq(file_or_path=input_path, 
+                                       image_properties_row=row)
 
         # Remove the shadow regions
         for shadow_region in self.regions_table.get_shadow_content_regions()[0]:
