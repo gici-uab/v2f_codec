@@ -1,6 +1,8 @@
 # Retos Colaboración - UAB - Compression system
 
-This repository hosts updates to the compression tool.
+This repository hosts the compression tool developed for a Retos Colaboración action with [Satellogic](https://satellogic.com) and other partners.
+
+# Project parts
 
 - `forest_generation/`: Python tools used to analyze and design compression pipelines based on Variable to Fixed (V2F) forests.
 
