@@ -1,0 +1,233 @@
+\documentclass[10pt,a4paper]{article}
+
+\usepackage{setspace}
+\usepackage{amssymb,amsmath}
+\usepackage{fixltx2e} 
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{eurosym}
+\usepackage{upquote}
+\usepackage[absolute,overlay]{textpos} % 
+
+
+\usepackage{lmodern}
+\usepackage[scaled=.92]{helvet}
+\renewcommand{\familydefault}{\sfdefault}
+
+\usepackage{courier}
+
+\usepackage{microtype}
+\UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+
+\usepackage[a4paper,left=2cm,bottom=17mm,right=2cm,top=30mm,headheight=10mm,headsep=10mm,
+footskip=17mm]{geometry}
+\usepackage[colorlinks=false,pdfborder={0 0 0},plainpages=false,breaklinks=true]{hyperref}
+%\urlstyle{same}  % don't use monospace font for urls
+\usepackage[english]{babel} % Hypenation
+\usepackage{hyphenat} % \nohyphens{text...}
+\usepackage{lastpage} % \pageref{LastPage}
+
+\usepackage{fancyvrb}
+
+\DefineVerbatimEnvironment{verbatim}{Verbatim}{samepage=true}
+
+$if(listings)$
+\usepackage{listings}
+$endif$
+$if(verbatim-in-note)$
+\VerbatimFootnotes % allows verbatim text in footnotes
+$endif$
+\usepackage{longtable,booktabs}
+\usepackage{graphicx}
+\makeatletter
+\def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}
+\def\maxheight{\ifdim\Gin@nat@height>\textheight\textheight\else\Gin@nat@height\fi}
+\makeatother
+% Scale images if necessary, so that they will not overflow the page
+% margins by default, and it is still possible to overwrite the defaults
+% using explicit options in \includegraphics[width, height, ...]{}
+\setkeys{Gin}{width=\maxwidth,height=\maxheight,keepaspectratio}
+$if(links-as-notes)$
+% Make links footnotes instead of hotlinks:
+\renewcommand{\href}[2]{#2\footnote{\url{#1}}}
+$endif$
+$if(strikeout)$
+\usepackage[normalem]{ulem}
+% avoid problems with \sout in headers with hyperref:
+\pdfstringdefDisableCommands{\renewcommand{\sout}{}}
+$endif$
+\usepackage{parskip}
+\setlength{\emergencystretch}{3em}  % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+$if(subparagraph)$
+$else$
+% Redefines (sub)paragraphs to behave more like sections
+\ifx\paragraph\undefined\else
+\let\oldparagraph\paragraph
+\renewcommand{\paragraph}[1]{\oldparagraph{#1}\mbox{}}
+\fi
+\ifx\subparagraph\undefined\else
+\let\oldsubparagraph\subparagraph
+\renewcommand{\subparagraph}[1]{\oldsubparagraph{#1}\mbox{}}
+\fi
+$endif$
+
+\newcommand{\lastversion}{not set}
+\newcommand{\lastdate}{not set}
+\newcommand{\lastchanges}{not set}
+
+$for(revisions)$ 
+\renewcommand{\lastversion}{$revisions.version$} 
+\renewcommand{\lastdate}{$revisions.date$} 
+\renewcommand{\lastchanges}{$revisions.changes$} 
+$endfor$
+
+\usepackage{fancyhdr}
+
+\newcommand{\mypagestyle}[0]{
+\fancyhead[L]{}\fancyhead[R]{}%
+\fancyhead[C]{\hspace{-10mm}\begin{minipage}[t]{180mm}
+\parbox[b][25mm][t]{25mm}{\includegraphics[width=25mm]{docs/conf/logoUAB.pdf}}\hspace*{10mm}%
+\parbox[b][25mm][t]{80mm}{\noindent\fontsize{8}{10}\fontfamily{phv}\selectfont%
+%
+\textbf{$title$} \\%
+Retos Colaboración RTC-2019-007434-7 - Data compression system.
+%
+}\hspace*{15mm}\parbox[b][25mm][t]{50mm}{\noindent\fontsize{7}{9}\fontfamily{phv}\selectfont%
+%
+\raggedleft
+Document version: \lastversion \\
+%
+}\end{minipage}\hspace{-10mm}%
+\vspace{-13mm}\vspace{-10pt}%
+}
+
+\fancyfoot[C]{
+\hspace{-10mm}%
+\begin{minipage}[t]{180mm}
+\parbox[b][10mm][t]{120mm}{\noindent\fontsize{8}{10}\fontfamily{phv}\selectfont%
+%
+\lastdate
+%
+}\parbox[b][10mm][t]{60mm}{\raggedleft\noindent%
+\fontsize{7}{9}\fontfamily{phv}\selectfont\thepage/\pageref{LastPage}}%
+\end{minipage}\hspace{-10mm}%
+}
+
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+}
+
+\title{$title$}
+
+\pagestyle{fancy}
+
+\setlength{\LTleft}{3em}
+\setlength\LTright{\fill}
+
+\begin{document}
+
+\begin{titlepage}
+\begin{textblock*}{50mm}(15mm,259.95mm)%
+\noindent\includegraphics[width=50mm]{docs/conf/logoUABblack.pdf}%
+\end{textblock*}
+\begin{textblock*}{50mm}(145mm,259.95mm)%
+\noindent{\includegraphics[width=50mm]{docs/conf/logogici.pdf}}%
+\end{textblock*}
+\begin{textblock*}{50mm}(100mm,259.95mm)%
+\noindent{\includegraphics[width=50mm]{docs/conf/logodeic.pdf}}%
+\end{textblock*}
+\vspace*{5cm}
+\begin{center}
+\noindent\fontsize{32}{38}\fontfamily{phv}\selectfont%
+$title$ \\[10pt]
+\fontsize{16}{24}\fontfamily{phv}\selectfont%
+Retos Colaboración RTC-2019-007434-7 - Data compression system.
+\end{center}
+
+\vspace{30mm}
+
+Document version: \lastversion \\
+Date: \lastdate \\
+
+\vspace{30mm}
+
+\fontsize{8}{10}\fontfamily{phv}\selectfont\noindent%
+%
+
+\thispagestyle{empty}
+\newpage
+\end{titlepage}
+
+\mypagestyle
+\fancypagestyle{plain}{\mypagestyle}
+
+\section*{Document Information}
+
+\begin{longtable}[]{@{}p{15cm}@{}}
+\toprule
+\catcode`\_=12
+Document identifier: $sourcefile$ \tabularnewline
+\midrule
+Title: $title$ \tabularnewline
+\midrule
+Number of pages: \pageref{LastPage} \tabularnewline
+\midrule
+Date: \lastdate \tabularnewline
+\midrule
+Author(s): $for(authors)$$authors$$sep$, $endfor$ \tabularnewline
+\bottomrule
+\end{longtable}
+
+\section*{Change Control}
+
+\begin{longtable}[]{@{}p{2cm}p{2.5cm}p{9.5cm}@{}}
+\toprule
+Revision & Date & Changes \tabularnewline
+\midrule
+$for(revisions)$ 
+$revisions.version$ & $revisions.date$ & $revisions.changes$ \tabularnewline
+$endfor$
+\endhead
+\bottomrule
+\end{longtable}
+
+%$for(revisions)$ $revision.version$ $sep$, $endfor$
+
+{
+\setcounter{tocdepth}{$toc-depth$}
+\tableofcontents
+\newpage
+}
+
+$if(lot)$
+\listoftables
+$endif$
+$if(lof)$
+\listoffigures
+$endif$
+$body$
+
+$if(natbib)$
+$if(bibliography)$
+$if(biblio-title)$
+$if(book-class)$
+\renewcommand\bibname{$biblio-title$}
+$else$
+\renewcommand\refname{$biblio-title$}
+$endif$
+$endif$
+\bibliography{$for(bibliography)$$bibliography$$sep$,$endfor$}
+
+$endif$
+$endif$
+$if(biblatex)$
+\printbibliography$if(biblio-title)$[title=$biblio-title$]$endif$
+
+$endif$
+$for(include-after)$
+$include-after$
+
+$endfor$
+\end{document}

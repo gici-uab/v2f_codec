@@ -1,0 +1,38 @@
+# Dependencies
+
+Dependencies for the V2F C prototype.
+
+## System dependencies
+
+The following package dependencies are necessary to build and test this software on a Debian-based system (tested on Ubuntu 20.04 LTS)
+
+- build-essential
+- git
+- pandoc
+- texlive-latex-base
+- texlive-latex-recommended
+- texlive-fonts-recommended
+- texlive-latex-extra
+- doxygen
+- graphviz
+- clang-6.0
+- afl++-clang
+- libcunit1-dev
+- lcov
+- libfiu-dev
+- fiu-utils
+- valgrind
+- python3
+- fdupes
+
+In addition, for proper testing with libfiu, a patched version is necessary. A compiled version can be found in fuzzing/libfiu_patch.
+
+
+## Python packages
+
+The following python packages are employed to simplify the compilation, analysis and development, and need to be available in the current environment's python3.
+
+- pandas
+- numpy
+- enb
+
