@@ -224,11 +224,6 @@ if __name__ == '__main__':
             fig_height=7,
         )
 
-        twoscalar_analyzer.get_df(
-            full_df=df,
-            target_columns=
-        )
-
     # Show decomposed by tree count
     scalar_analyzer.csv_support_path = os.path.join(options.analysis_dir, "v2f_only",
                                                     os.path.basename(scalar_analyzer.csv_support_path))
