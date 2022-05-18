@@ -17,8 +17,14 @@ except ImportError as ex:
 
 from lossless_compression_experiment import LosslessExperiment
 
+# Base dir where the modified dataset is to be stored 
+n_component_image_output_dir = "datasets_stacking/n_component_experiment"
+
 
 def generate_stacked_sets(original_dataset, versioned_dataset):
+    """
+    Generate Dataset with images from each corpus and from all corpus stacked
+    """
     output_dir = versioned_dataset
     boats_dir_path = f"{original_dataset}/boats2020"
     fields_dir_path = f"{original_dataset}/fields2020"
@@ -41,16 +47,16 @@ def generate_stacked_sets(original_dataset, versioned_dataset):
 
 
 if __name__ == '__main__':
-    options.base_tmp_dir = "./tmp"
-    options.persistence_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                           "persistence", "persistence_n_component_experiment.py")
+    options.base_tmp_dir = "tmp"
+    options.chunk_size = 256
+    options.persistence_dir = os.path.join("persistence", "persistence_n_component_experiment.py")
 
     # options.ray_cpu_limit = 1
-    os.makedirs("./datasets_experiment/datasets_n_components", exist_ok=True)
-    options.base_dataset_dir = "./datasets_experiment/datasets_n_components"
+    os.makedirs(n_component_image_output_dir, exist_ok=True)
+    options.base_dataset_dir = n_component_image_output_dir
     os.makedirs(options.base_dataset_dir, exist_ok=True)
 
-    generate_stacked_sets(original_dataset="./datasets",
+    generate_stacked_sets(original_dataset="datasets",
                           versioned_dataset=options.base_dataset_dir)
 
     codecs = []
@@ -62,6 +68,12 @@ if __name__ == '__main__':
     kakadu_family.add_task(c.name, c.label)
     families.append(kakadu_family)
 
+    jpeg_ls_family = enb.experiment.TaskFamily(label="JPEG-LS")
+    c = jpeg.JPEG_LS(max_error=0)
+    codecs.append(c)
+    jpeg_ls_family.add_task(c.name, c.label)
+    families.append(jpeg_ls_family)
+
     ccsds_family = enb.experiment.TaskFamily(label="CCSDS LCNL")
     c = lcnl.CCSDS_LCNL_GreenBook(
         absolute_error_limit=0,
@@ -72,7 +84,7 @@ if __name__ == '__main__':
     families.append(ccsds_family)
 
     # Add lossless (q1) V2F codecs
-    v2fc_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prebuilt_codecs")
+    v2fc_dir = "prebuilt_codecs"
     v2fc_path_list = list(glob.glob(os.path.join(v2fc_dir, "q1", "**", "*treecount-*.v2fc"), recursive=True))
     for v2fc_path in v2fc_path_list:
         qstep = int(re.search(r"_qstep-(\d+)", os.path.basename(v2fc_path)).group(1))
@@ -87,7 +99,9 @@ if __name__ == '__main__':
             decorrelator_mode = v2f.V2F_C_DECORRELATOR_MODE_JPEGLS
             prediction_label = "JPEGLS"
         else:
-            raise ValueError(f"Unsupported decorrelator mode for {repr(os.path.abspath(v2fc_path))}")
+            print(f"Unsupported decorrelator mode for {repr(os.path.abspath(v2fc_path))}")
+            continue
+            # raise ValueError(f"Unsupported decorrelator mode for {repr(os.path.abspath(v2fc_path))}")
         c = v2f.v2f_codecs.V2FCodec(
             v2fc_header_path=v2fc_path,
             qstep=qstep, decorrelator_mode=decorrelator_mode,
@@ -115,14 +129,14 @@ if __name__ == '__main__':
     # Scalar column analysis
     scalar_analyzer = enb.aanalysis.ScalarNumericAnalyzer(
         csv_support_path=os.path.join(
-            options.analysis_dir, "analysis_lossless/", "n_components_compression_analysis_scalar.csv"))
+            options.analysis_dir, "analysis_lossless", "n_components_compression_analysis_scalar.csv"))
     scalar_analyzer.show_x_std = True
     scalar_analyzer.bar_width_fraction = 0
     scalar_analyzer.sort_by_average = True
 
     twoscalar_analyzer = enb.aanalysis.TwoNumericAnalyzer(
         csv_support_path=os.path.join(
-            options.analysis_dir, "analysis_lossless/", "n_components_compression_analysis_twocolumn.csv"))
+            options.analysis_dir, "analysis_lossless", "n_components_compression_analysis_twocolumn.csv"))
 
     plot_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plots", "n_components_plots_lossless")
     for group_by in ["family_label"]:

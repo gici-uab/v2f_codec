@@ -14,6 +14,9 @@ from enb.config import options
 
 def link_datasets():
     base_dataset = "/data/research-materials/satellogic"
+    if not os.path.isdir(base_dataset):
+        raise ValueError(f"Please set base_dataset to an existing directory containing"
+                         f" the fields2020 and boats2020 datasets")
 
     for number in [1, 12, 50, -1]:
         for dir_path in [os.path.join(base_dataset, "fields2020"), os.path.join(base_dataset, "boats2020")]:

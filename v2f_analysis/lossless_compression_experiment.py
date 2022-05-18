@@ -10,6 +10,8 @@ import enb
 import pandas as pd
 from enb.config import options
 
+for plugin in ["jpeg", "kakadu", "v2f", "lcnl"]:
+    enb.plugins.install(plugin)
 try:
     from plugins import jpeg, kakadu, v2f, lcnl
 except ImportError as ex:
@@ -33,9 +35,11 @@ class LosslessExperiment(enb.icompression.LosslessCompressionExperiment):
             elif decorrelator_mode == v2f.V2F_C_DECORRELATOR_MODE_LEFT:
                 return "Left neighbor prediction"
             elif decorrelator_mode == v2f.V2F_C_DECORRELATOR_MODE_2_LEFT:
-                return "Two left neighbors prediction"
+                return "Two left neighbor prediction"
             elif decorrelator_mode == v2f.V2F_C_DECORRELATOR_MODE_JPEGLS:
                 return "JPEG-LS prediction"
+            elif decorrelator_mode == v2f.V2F_C_DECORRELATOR_MODE_FGIJ:
+                return "Four neighbor prediction"
             else:
                 raise KeyError(decorrelator_mode)
         except KeyError:
@@ -104,15 +108,12 @@ class LosslessExperiment(enb.icompression.LosslessCompressionExperiment):
 if __name__ == '__main__':
     # If uncommented, it slows down computation but prevents ram hoarding and
     # out of memory problems with large images:
+    options.persistence_dir = os.path.join("persistence", "persistence_lossless_compression_experiment")
+    options.analysis_dir = os.path.join("analysis", "lossless_compression_experiment")
+    options.plot_dir = os.path.join("plots", "lossless_compression")
+    options.chunk_size = 1024 if options.chunk_size is None else options.chunk_size
 
-    options.base_tmp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tmp")
-    options.persistence_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                           "persistence", "persistence_lossless_compression_experiment.py")
-    options.chunk_size = 256
-
-    # # Non-parallel execution for more accurate time measurements
-    # options.ray_cpu_limit = 1
-    # options.repetitions = 3
+    shadow_regions = [(1200, 1300), (2510, 2600), (3816, 3910)]
 
     codecs = []
     task_families = []
@@ -139,38 +140,52 @@ if __name__ == '__main__':
     task_families.append(ccsds_family)
 
     # Add lossless (q1) V2F codecs
-    v2fc_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prebuilt_codecs")
+    v2fc_dir = "prebuilt_codecs"
     v2fc_path_list = list(p for p in glob.glob(os.path.join(v2fc_dir, "q1", "**", "*treecount-*.v2fc"), recursive=True)
-                          if "treecount-1" in p or "treecount-4" in p or "treecount-8" in p)
+                          if any(s in p for s in [f"treecount-{c}" for c in (1, 2, 3, 4, 8)]))
     v2fc_path_list = [os.path.relpath(p, enb.config.options.project_root) for p in v2fc_path_list]
 
-    for v2fc_path in v2fc_path_list:
-        qstep = int(re.search(r"_qstep-(\d+)", os.path.basename(v2fc_path)).group(1))
-        treecount = int(re.search(r"_treecount-(\d+)", os.path.basename(v2fc_path)).group(1))
-        if "prediction_W" in os.path.abspath(v2fc_path):
-            prediction_label = "W"
-            decorrelator_mode = v2f.V2F_C_DECORRELATOR_MODE_LEFT
-        elif "prediction_IJ" in os.path.abspath(v2fc_path):
-            decorrelator_mode = v2f.V2F_C_DECORRELATOR_MODE_2_LEFT
-            prediction_label = r"(W1+W2) / 2"
-        elif "prediction_JLS" in os.path.abspath(v2fc_path):
-            decorrelator_mode = v2f.V2F_C_DECORRELATOR_MODE_JPEGLS
-            prediction_label = "JPEGLS"
-        else:
-            raise ValueError(f"Unsupported decorrelator mode for {repr(os.path.abspath(v2fc_path))}")
-        c = v2f.v2f_codecs.V2FCodec(
-            v2fc_header_path=v2fc_path,
-            qstep=qstep, decorrelator_mode=decorrelator_mode,
-            quantizer_mode=v2f.V2F_C_QUANTIZER_MODE_UNIFORM,
-            time_results_dir=os.path.join(options.persistence_dir, "time_results"))
-        codecs.append(c)
-        task_families.append(enb.experiment.TaskFamily(label=f"V2F {treecount} trees, {prediction_label}"))
-        task_families[-1].add_task(c.name, f"{c.label} Qstep {c.param_dict['qstep']}"
-                                      f" Decorrelator Mode {c.param_dict['decorrelator_mode']}"
-                                      f" Tree Count {treecount}")
+    # Combine all QP-trained forests with their corresponding prediction modes,
+    # while ignoring the PQ-trained forests.
+    # Each combination is considered with and without coding the shadow regions
+    for shadow_pairs in [shadow_regions, []]:
+        for v2fc_path in v2fc_path_list:
+            qstep = int(re.search(r"_qstep-(\d+)", os.path.basename(v2fc_path)).group(1))
+            treecount = int(re.search(r"_treecount-(\d+)", os.path.basename(v2fc_path)).group(1))
+            if "prediction_W" in os.path.abspath(v2fc_path).split(os.sep):
+                prediction_label = "W"
+                decorrelator_mode = v2f.V2F_C_DECORRELATOR_MODE_LEFT
+            elif "prediction_IJ" in os.path.abspath(v2fc_path).split(os.sep):
+                decorrelator_mode = v2f.V2F_C_DECORRELATOR_MODE_2_LEFT
+                prediction_label = r"(W1+W2) / 2"
+            elif "prediction_JLS" in os.path.abspath(v2fc_path).split(os.sep):
+                decorrelator_mode = v2f.V2F_C_DECORRELATOR_MODE_JPEGLS
+                prediction_label = "JPEGLS"
+            elif "prediction_FGJI" in os.path.abspath(v2fc_path).split(os.sep):
+                decorrelator_mode = v2f.V2F_C_DECORRELATOR_MODE_FGIJ
+                prediction_label = "FGIJ"
+            else:
+                enb.logger.info(f"Not including forest {repr(os.path.abspath(v2fc_path))}")
+                continue
+            c = v2f.v2f_codecs.V2FCodec(
+                v2fc_header_path=v2fc_path,
+                qstep=qstep, decorrelator_mode=decorrelator_mode,
+                quantizer_mode=v2f.V2F_C_QUANTIZER_MODE_UNIFORM,
+                time_results_dir=os.path.join(options.persistence_dir, "time_results"),
+                shadow_position_pairs=shadow_pairs,
+                verify_on_initialization=False)
+            codecs.append(c)
+            task_families.append(enb.experiment.TaskFamily(
+                label=f"V2F {treecount} trees, {prediction_label}"
+                      f"{' noshadow' if shadow_pairs else ''}"))
+            task_families[-1].add_task(c.name, f"{c.label} Qstep {c.param_dict['qstep']}"
+                                               f" Decorrelator Mode {c.param_dict['decorrelator_mode']}"
+                                               f" Tree Count {treecount}"
+                                               f"{' noshadow' if shadow_pairs else ''}")
+
 
     # Create experiment
-    exp = LosslessExperiment(codecs=codecs, task_families=task_families)
+    exp = v2f.ShadowLossyExperiment(codecs=codecs, task_families=task_families, shadow_position_pairs=shadow_regions)
 
     # Generate pandas dataframe with results. Persistence is automatically added
     df = exp.get_df()
@@ -196,7 +211,6 @@ if __name__ == '__main__':
         csv_support_path=os.path.join(
             options.analysis_dir, "analysis_lossless/", "lossless_compression_analysis_twocolumn.csv"))
 
-    plot_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plots", "plots_lossless")
     for group_by in ["family_label"]:
         scalar_analyzer.csv_support_path = os.path.join(options.analysis_dir, f"groupby_{group_by}",
                                                         os.path.basename(scalar_analyzer.csv_support_path))
@@ -206,9 +220,13 @@ if __name__ == '__main__':
             column_to_properties=exp.joined_column_to_properties,
             group_by=group_by,
             selected_render_modes={"histogram"},
-            output_plot_dir=plot_dir,
             show_global=False,
-            fig_height=5,
+            fig_height=7,
+        )
+
+        twoscalar_analyzer.get_df(
+            full_df=df,
+            target_columns=
         )
 
     # Show decomposed by tree count
@@ -221,7 +239,7 @@ if __name__ == '__main__':
         column_to_properties=exp.joined_column_to_properties,
         group_by=group_by,
         selected_render_modes={"histogram"},
-        output_plot_dir=os.path.join(plot_dir, "v2f_only"),
+        output_plot_dir=os.path.join(options.plot_dir, "v2f_only"),
         plot_title=f"Grouped by {', '.join(s.replace('_', ' ') for s in group_by)}",
         show_global=False,
     )
@@ -239,7 +257,7 @@ if __name__ == '__main__':
         column_to_properties=exp.joined_column_to_properties,
         group_by=task_families,
         selected_render_modes={"histogram"},
-        output_plot_dir=os.path.join(plot_dir, "corpus_split"),
+        output_plot_dir=os.path.join(options.plot_dir, "corpus_split"),
         plot_title=f"Grouped by {', '.join(s.replace('_', ' ') for s in group_by)}",
         show_global=False,
     )
@@ -250,10 +268,7 @@ if __name__ == '__main__':
             column_to_properties=exp.joined_column_to_properties,
             group_by=group_by,
             selected_render_modes={"histogram"},
-            output_plot_dir=os.path.join(plot_dir, "corpus_split", corpus_name),
+            output_plot_dir=os.path.join(options.plot_dir, "corpus_split", corpus_name),
             plot_title=f"Grouped by {', '.join(s.replace('_', ' ') for s in group_by)}",
             show_global=False,
         )
-
-    with enb.logger.message_context("Saving plots to PNG"):
-        enb.aanalysis.pdf_to_png("plots", "png_plots")

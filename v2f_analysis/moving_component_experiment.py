@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-
+"""Experiment where the 4-horizontal-region bands from consecutive images are considered to have 4 bands,
+each spanning one of the regions
+"""
 import os
 import numpy as np
 import enb
@@ -16,8 +18,13 @@ except ImportError as ex:
 
 from lossless_compression_experiment import LosslessExperiment
 
+moving_component_image_output_dir = "datasets_stacking/moving_component_experiment"
+
 
 class MovingBandVersionTable(enb.sets.FileVersionTable):
+    """
+    Generate Moving bands Dataset. Stack bands from consecutive images
+    """
     dataset_files_extension = "raw"
 
     regions = [HorizontalRegion(0, 1215, "band0"),
@@ -72,17 +79,14 @@ class MovingBandVersionTable(enb.sets.FileVersionTable):
 
 
 if __name__ == '__main__':
-    version_base_dir = "./datasets_experiment/datasets_moving_frames"
-    options.persistence_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                           "persistence", "persistence_moving_component_experiment_experiment.py")
+    options.persistence_dir = os.path.join("persistence", "persistence_moving_component_experiment_experiment.py")
 
-    if not os.path.isdir(version_base_dir):
+    if not os.path.isdir(moving_component_image_output_dir):
         print("Generating moving datasets")
-        MovingBandVersionTable(original_base_dir="./datasets",
-                               version_base_dir=version_base_dir).get_df()
+        MovingBandVersionTable(original_base_dir="datasets",
+                               version_base_dir=moving_component_image_output_dir).get_df()
 
-
-    options.base_tmp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tmp")
+    options.base_tmp_dir = "tmp"
     options.chunk_size = 256
 
     codecs = []
@@ -110,7 +114,7 @@ if __name__ == '__main__':
     families.append(ccsds_family)
 
     # Add lossless (q1) V2F codecs
-    v2fc_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prebuilt_codecs")
+    v2fc_dir = "prebuilt_codecs"
     v2fc_path_list = list(glob.glob(os.path.join(v2fc_dir, "q1", "**", "*treecount-*.v2fc"), recursive=True))
     for v2fc_path in v2fc_path_list:
         qstep = int(re.search(r"_qstep-(\d+)", os.path.basename(v2fc_path)).group(1))
@@ -119,13 +123,15 @@ if __name__ == '__main__':
             prediction_label = "W"
             decorrelator_mode = v2f.V2F_C_DECORRELATOR_MODE_LEFT
         elif "prediction_IJ" in os.path.abspath(v2fc_path):
-            decorrelator_mode = v2f.V2F_C_DECORRELATOR_MODE_2_LEFT
             prediction_label = r"(W1+W2) / 2"
+            decorrelator_mode = v2f.V2F_C_DECORRELATOR_MODE_2_LEFT
         elif "prediction_JLS" in os.path.abspath(v2fc_path):
-            decorrelator_mode = v2f.V2F_C_DECORRELATOR_MODE_JPEGLS
             prediction_label = "JPEGLS"
+            decorrelator_mode = v2f.V2F_C_DECORRELATOR_MODE_JPEGLS
         else:
-            raise ValueError(f"Unsupported decorrelator mode for {repr(os.path.abspath(v2fc_path))}")
+            print(f"Unsupported decorrelator mode for {repr(os.path.abspath(v2fc_path))}")
+            continue
+            # raise ValueError(f"Unsupported decorrelator mode for {repr(os.path.abspath(v2fc_path))}")
         c = v2f.v2f_codecs.V2FCodec(
             v2fc_header_path=v2fc_path,
             qstep=qstep, decorrelator_mode=decorrelator_mode,
@@ -137,7 +143,7 @@ if __name__ == '__main__':
                                       f" Decorrelator Mode {c.param_dict['decorrelator_mode']}"
                                       f" Tree Count {treecount}")
     # Create experiment
-    options.base_dataset_dir = version_base_dir
+    options.base_dataset_dir = moving_component_image_output_dir
     exp = LosslessExperiment(codecs=codecs, task_families=families)
     # Generate pandas dataframe with results. Persistence is automatically added
     df = exp.get_df()
@@ -154,14 +160,14 @@ if __name__ == '__main__':
     # Scalar column analysis
     scalar_analyzer = enb.aanalysis.ScalarNumericAnalyzer(
         csv_support_path=os.path.join(
-            options.analysis_dir, "analysis_lossless/", "moving_components_compression_analysis_scalar.csv"))
+            options.analysis_dir, "analysis_lossless", "moving_components_compression_analysis_scalar.csv"))
     scalar_analyzer.show_x_std = True
     scalar_analyzer.bar_width_fraction = 0
     scalar_analyzer.sort_by_average = True
 
     twoscalar_analyzer = enb.aanalysis.TwoNumericAnalyzer(
         csv_support_path=os.path.join(
-            options.analysis_dir, "analysis_lossless/", "moving_components_compression_analysis_twocolumn.csv"))
+            options.analysis_dir, "analysis_lossless", "moving_components_compression_analysis_twocolumn.csv"))
 
     plot_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plots", "moving_components_plots_lossless")
     for group_by in ["family_label"]:

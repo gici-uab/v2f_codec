@@ -5,10 +5,12 @@ revisions: # older versions first
 	- version: 1.0
       date: 1 Aug 2021
       changes: (initial version)
+    - version: 1.1
+      date: 1 May 2022
+      changes: added documentation for the new prediction modes
 authors:
 	- Miguel Hernández-Cabronero et al.
 ---
-
 
 # INTRODUCTION
 
@@ -28,13 +30,18 @@ reconstructs a file of the same length, potentially without loss.
 
 Both tools require an additional input header file describing the V2F
 compression forests and other parameters to be used for compression. Typically,
-these headers are stored with `.v2fc` extension. An auxiliary tool has been
-developed, `v2f_verify_codec`, that can be used to validate any existing header
-file. See its description below for more information on the format of this
-header files.
-
+these headers are stored with `.v2fc` extension. A set of prebuilt headers
+is already provided. To generated new `.v2fc` files adapted to a given dataset,
+the scripts under the `../forest_generation` folder can be used to produce
+`.v2fh` files. These should be moved into `metasrc/prebuilt_forests`
+and `make` can then be run to produce the corresponding `.v2fc` files.
 See `metasrc/README.md` for further information on how to create new header
 files.
+
+An auxiliary tool has been developed, `v2f_verify_codec`,
+which can be used to validate any existing header
+file. See its description below for more information on the format of this
+header files.
 
 # COMMAND-LINE TOOL USAGE
 
@@ -58,7 +65,8 @@ files.
     v2f_compress [-h] [-v]
                  [-q quantizer_mode]
                  [-s quantizer_step_size]
-                 [-d decorrelator_mode] 
+                 [-d decorrelator_mode]
+                 [-w samples_per_row [-y shadow_y_start_stop_list]] 
                  raw_file 
                  v2f_codec 
                  compressed_file
@@ -71,15 +79,18 @@ The command-line program `v2f_compress` reads input data in raw format
 from `raw_file` and compresses it the file pointed by `compressed_file`.
 
 The `v2f_codec` parameter must point to a file which describes the V2F
-compressor to be used. These can be overwritten using optional arguments in the
+compressor and other parameters to be used.
+These parameters can be overwritten using optional arguments in the
 invocation.
 
 ### Options
 
 When provided, -q, -s and -d overwrite the quantization and decorrelation
 parameters set in `v2f_codec` file. When not provided, these values are read
-from the definition in `v2f_codec`.
-
+from the definition in `v2f_codec`. 
+The -w parameter indicates the number of samples per image row, i.e., the image width.
+If -w is provided, the -y parameter may be used to indicate a list of start and stop y indices
+that are to be considered shadow, i.e., they are not compressed and are reconstructed to all zeros. 
 It is the coder-decoder pair's responsibility to employ the same `v2f_codec`
 /parameter combination to allow reconstruction of the expected output.
 
@@ -87,7 +98,7 @@ It is the coder-decoder pair's responsibility to employ the same `v2f_codec`
 
 Specify the quantization type applied in that stage:
 
-- `0`: no quantization is applied. 
+- `0`: no quantization is applied.
 - `1`: uniform quantization is applied
 
 #### -s quantization step size
@@ -101,19 +112,52 @@ quantizer mode is 0 (no quantization).
 Specify the type of decorrelation to apply to the input data. It must be one
 of:
 
-- `0`: don't apply any decorrelation. The (possibly quantized) samples are coded
+- `0`: don't apply any decorrelation. The (possibly quantized) samples are
+  coded
   directly by the entropy coder.
 
-- `1`: apply DPCM prediction using the immediately previous sample, and code the
-  prediction errors. The dynamic range of the data is not expanded.
+- `1`: apply DPCM prediction using the immediately previous sample, and code
+  the
+  prediction errors.
 
 - `2`: apply prediction using the average of the two previous samples.
 
-#### -v
+- `3`: apply the prediction function employed by the JPEG-LS algorithm
+
+- `4`: apply prediction using the average of two left, left, left-north
+  and north samples
+
+#### -w samples per row (width)
+
+For 2D or 3D data, and for decorrelation modes 3 and 4, this parameter
+must be provided, indicating the number of samples per row, i.e., the
+image width.
+
+#### -y list of shadow start and stop y indices
+
+When -w is provided, the -y can be specified so that one or more horizontal
+shadow regions can be identified (and not coded). 
+If present, the format of this argument is
+
+`-y start1,end1[,start2,end2[,...[,startN,endN]]]`
+
+where start1,end1 are the first and last y indices (starting with 0) of the first shadow region,
+and so on. For instance, an image with two shadows, one at rows 10 to 70 (both included)
+and another at rows 100 to 150 (both included) could be coded with the following argument:
+
+`-y 10,70,100,150`
+
+Note that:
+    
+   - This string may contain only comma and number characters.
+   - The end y position of all regions must be at least as large as the corresponding start y position.
+   - No overlap is accepted between different shadow regions.
+
+#### -v version information
 
 Tool shows version information.
 
-#### -h
+#### -h show help
 
 Tool shows help information.
 
@@ -121,11 +165,14 @@ Tool shows help information.
 
 #### `raw_file`
 
-The data in `raw_file` must be stored using 1-byte or 2-byte big-endian words.
-The number of input samples in `raw_file` is automatically deducted from
-the codec configuration described in `v2f_codec`. 
+The data in `raw_file` must be stored using 1-byte or 2-byte big-endian words
+in raster BSQ order.
 
-The size of `raw_file` is arbitrary, except that it must be 
+The number of input samples in `raw_file` is automatically deducted from
+the codec configuration described in `v2f_codec`.
+In case 2D is being compressed, the -w parameter must be used to specify the row width.
+
+The size of `raw_file` is arbitrary, except that it must be
 a multiple of the number of bytes per sample configured in the codec.
 
 #### `v2f_codec`
@@ -137,29 +184,33 @@ below.
 
 #### `compressed_file`
 
-The sequence of input samples can be split by the encoder into one or 
+The sequence of input samples can be split by the encoder into one or
 more blocks of contiguous samples maintaining a raster, BSQ ordering.
 This sequence of blocks is compressed maintaining that same order.
 
-Each block is compressed independently, producing a `block envelope` as a result.
+Each block is compressed independently, producing a `block envelope` as a
+result.
 The contents of `compressed_file` are the concatenation of these envelopes.
 
 The contents of each `block envelope` are as follows:
 
 - `compressed_bitstream_size`: 4 bytes, unsigned big-endian integer.
   Number of bytes in the `compressed_bitstream` field, defined below.
+  If this value is zero, it indicates a shadow region that has not been compressed
+  and is intended to be reconstructed as all zeros.
 
-- `sample_count`: 4 bytes, unsigned big-endian integer. 
+- `sample_count`: 4 bytes, unsigned big-endian integer.
   The total number of input samples in the original block. Not to be confused
   with the number of emitted codewords.
 
-- `compressed_bitstream`: `compressed_bitstream_size` `bytes`. 
-  It contains the compact representation of the data in the block. 
+- `compressed_bitstream`: `compressed_bitstream_size` `bytes`.
+  It contains the compact representation of the data in the block.
   Its format is bit-precise defined by the
   input, the employed `v2f_codec` and any modifier options.
-  This format is a succession of fixed-length V2F tree node indices, 
+  This format is a succession of fixed-length V2F tree node indices,
   each of which represents one or more coded symbols.
-  
+  This field is only present if compressed_bitstream_size is not zero.
+
 
 ### Usage example
 
@@ -181,7 +232,10 @@ maximum absolute error of at most 2), and left DPCM prediction (`-d 1`).
 
 Software development:
 
-- Miguel Hernández-Cabronero <miguel.hernandez@uab.cat>, et al.
+- Miguel Hernández-Cabronero <miguel.hernandez@uab.cat>
+- Artur Llabrés <artur.llabres@uab.cat>
+- Natalia Blasco <natalia.blasco@uab.cat>
+- Ester Jara <ester.jara@uab.cat>
 
 Project management:
 
@@ -217,7 +271,8 @@ Produced by Universitat Autònoma de Barcelona (UAB) for Satellogic.
     v2f_decompress [-h] [-v]
                    [-q quantizer_mode]
                    [-s quantizer_step_size]
-                   [-d decorrelator_mode] 
+                   [-d decorrelator_mode]
+                   [-w samples_per_row] 
                    compressed_file 
                    v2f_codec 
                    reconstructed_file 
@@ -237,6 +292,9 @@ When provided, -q, -s and -d overwrite the quantization and decorrelation
 parameters set in `v2f_codec` file. When not provided, these values are read
 from the definition in `v2f_codec`.
 
+For 2D data, the -w argument must be passed to inform the decoder of the
+number of samples in each row. Note that the -y argument of the encoder is not present in the decoder.
+
 It is the coder-decoder pair's responsibility to employ the same `v2f_codec`
 /parameter combination to allow reconstruction of the expected output.
 
@@ -255,22 +313,33 @@ quantizer mode is 0 (no quantization).
 
 #### -d decorrelator mode
 
-Specify the type of decorrelation to apply to the input data. It must be one
-of:
+Specify the type of decorrelation applied by the encoder. It must be one of:
 
-- 0: don't apply any decorrelation. The (possibly quantized) samples are coded
+- `0`: didn't apply any decorrelation. The (possibly quantized) samples were
+  coded
   directly by the entropy coder.
 
-- 1: apply DPCM prediction using the immediately previous sample, and code the
-  prediction errors. The dynamic range of the data is not expanded.
+- `1`: applied DPCM prediction using the immediately previous sample,
+  and codeed the prediction errors.
 
-- 2: apply prediction using the average of the two previous samples.
+- `2`: applied prediction using the average of the two previous samples.
 
-#### -v
+- `3`: applied the prediction function employed by the JPEG-LS algorithm
+
+- `4`: applied prediction using the average of two left, left, left-north
+  and north samples
+
+#### -w samples per row
+
+For 2D data, if decorrelators `3` or `4` were selected, this parameter
+must be passed to indicate the number of samples per row, i.e., the image
+width.
+
+#### -v show version
 
 Tool shows version information.
 
-#### -h
+#### -h show help
 
 Tool shows help information.
 
@@ -299,7 +368,7 @@ to be identical to the original data.
 The following example demonstrates how to decompress
 `example.v2f` and store the resulting samples into `reconstructed.raw`.
 
-The `v2f_codec.v2fc` file should be identical to the one employed during 
+The `v2f_codec.v2fc` file should be identical to the one employed during
 compression, and the same option flags should be applied.
 
 ```
@@ -312,7 +381,10 @@ compression, and the same option flags should be applied.
 
 Software development:
 
-- Miguel Hernández-Cabronero <miguel.hernandez@uab.cat>, et al.
+- Miguel Hernández-Cabronero <miguel.hernandez@uab.cat>
+- Artur Llabrés <artur.llabres@uab.cat>
+- Natalia Blasco <natalia.blasco@uab.cat>
+- Ester Jara <ester.jara@uab.cat>
 
 Project management:
 
@@ -491,7 +563,7 @@ and provides basic information about it in case it is valid:
 
 Software development:
 
-- Miguel Hernández-Cabronero <miguel.hernandez@uab.cat>, et al.
+- Miguel Hernández-Cabronero <miguel.hernandez@uab.cat>
 
 Project management:
 

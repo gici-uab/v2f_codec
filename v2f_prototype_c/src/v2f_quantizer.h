@@ -18,6 +18,8 @@
  * @param mode unique mode id for this quantizer.
  * @param step_size quantization step size. Must be at least 1.
  *   If 1, no quantization is performed.
+ * @param max_sample_value maximum allowed input sample value. Needed to
+ *   perform a valid dequantization within the expected dynamic range.
  * @return
  *  - @ref V2F_E_NONE : Creation successful
  *  - @ref V2F_E_INVALID_PARAMETER : At least one invalid parameter

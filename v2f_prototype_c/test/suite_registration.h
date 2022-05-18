@@ -44,6 +44,11 @@ void register_decorrelator(void);
  */
 void register_compressor_decompressor(void);
 
+/**
+ * Register the bin_common suite
+ */
+void register_bin_common(void);
+
 
 #endif
 

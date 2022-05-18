@@ -4,8 +4,7 @@
 
 C99 implementation of a full compression pipeline based on V2F code forests.
 
-Author: Universitat Autònoma de Barcelona (UAB): Miguel Hernández-Cabronero et
-al.
+Author: Universitat Autònoma de Barcelona (UAB): Miguel Hernández-Cabronero et al.
 
 ## Compilation instructions
 

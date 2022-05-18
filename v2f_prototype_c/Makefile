@@ -1,7 +1,7 @@
 ##### Configuration ###############################################################################
 
 # Control message logging
-# LOG_LEVEL may be any of 1: error, 2: warning, 3: info, 4: debug.
+# LOG_LEVEL may be any of 1: error, 2: warning, 3: info, 4: general debug, 5: tree structure debug.
 # All levels output messages from inferior levels.
 FLAGS_LOG=-D_ENABLE_LOG_MESSAGES -D_LOG_LEVEL=3
 #FLAGS_LOG=
@@ -51,9 +51,9 @@ LDFLAGS=$(COMMON_LDFLAGS) $(OPT_LDFLAGS)
 # (2) Test build (unit tests): Same flags + hardening + coverage instrumentation.
 # This build produces the build/unittest binary and the build unittest.report document.
 
-TEST_CFLAGS=$(COMMON_CFLAGS) $(OPT_CFLAGS) -D_GNU_SOURCE --coverage -fsanitize=undefined \
-	-fno-sanitize-recover=all -D_GLIBC_DEBUG
-TEST_LDFLAGS=$(COMMON_LDFLAGS) $(OPT_LDFLAGS) --coverage -fsanitize=undefined -fno-sanitize-recover=all \
+TEST_CFLAGS=$(COMMON_CFLAGS) $(OPT_CFLAGS) -D_GNU_SOURCE --coverage \
+	-D_GLIBC_DEBUG
+TEST_LDFLAGS=$(COMMON_LDFLAGS) $(OPT_LDFLAGS) --coverage \
 	-D_GLIBC_DEBUG -lm
 TEST_LDLIBS=
 
@@ -63,9 +63,9 @@ TEST_LDLIBS=
 # afl-fuzz -i fuzzing/header_samples/ -o build/fuzzing_output/header_fuzzer build/fuzzers/header_fuzzer
 
 FUZZ_CC=afl-clang-fast
-FUZZ_CFLAGS=$(COMMON_CFLAGS) -D_GNU_SOURCE -fsanitize=undefined -fno-sanitize-recover=all \
+FUZZ_CFLAGS=$(COMMON_CFLAGS) -D_GNU_SOURCE \
 	-Wno-gnu-statement-expression -g0
-FUZZ_LDFLAGS=$(COMMON_LDFLAGS) -fsanitize=undefined -fno-sanitize-recover=all -g0
+FUZZ_LDFLAGS=$(COMMON_LDFLAGS) -g0
 FUZZ_LDLIBS=
 
 # (4) Fuzzing coverage: Binaries are instrumented for coverage reporting 
@@ -112,6 +112,7 @@ DOXYGEN_FILES=build/doxygen/html/index.html
 # (1)
 SRC_O_FILES=$(addprefix build/obj/main/, $(SRC_C_FILES:.c=.o))
 BIN_O_FILES=$(addprefix build/obj/main/, $(BIN_C_FILES:.c=.o))
+
 
 MAIN_BINARIES=$(addprefix build/bin/, $(filter-out bin_common, $(BIN_C_FILES:.c=)))
 
@@ -196,7 +197,7 @@ USAGE_FILES=$(BIN_FILES_WITH_USAGE:.c=_usage.h)
 
 bin: $(USAGE_FILES) $(MAIN_BINARIES)
 
-build/bin/%: build/obj/main/%.o build/obj/main/prefix.a build/obj/main/bin_common.o
+build/bin/%: build/obj/main/%.o build/obj/main/v2f.a build/obj/main/bin_common.o
 	@mkdir -p build/bin
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
@@ -206,12 +207,12 @@ bin/%_usage.h: bin/%.c docs/user_manual.md
 
 # Libraries
 
-lib: build/obj/main/prefix.a build/obj/main/prefix.so
+lib: build/obj/main/v2f.a build/obj/main/v2f.so
 
-build/obj/main/prefix.a: $(SRC_O_FILES)
+build/obj/main/v2f.a: $(SRC_O_FILES)
 	$(AR) -rcs $@ $^
 
-build/obj/main/prefix.so: $(SRC_O_FILES)
+build/obj/main/v2f.so: $(SRC_O_FILES)
 	$(CC) $(LDFLAGS) -fvisibility=hidden -shared $^ -o $@
 	
 build/obj/main/%.o: %.c
@@ -252,7 +253,8 @@ build/valgrind_fuzzing.report: fuzzers
 	metasrc/valgrind_fuzzing_samples.sh | tee build/valgrind_fuzzing.report
 
 build/unittest: $(TEST_O_FILES)
-	$(CC) $(TEST_LDFLAGS) $^ -lcunit $(TEST_LDLIBS) -o $@
+	$(CC) $(CFLAGS) $(TEST_CFLAGS) -c bin/bin_common.c -o build/obj/test/bin_common.o
+	$(CC) $(TEST_LDFLAGS) build/obj/test/bin_common.o $^ -lcunit $(TEST_LDLIBS) -o $@
 
 build/obj/test/%.o: %.c
 	@mkdir -p build/obj/test
@@ -303,4 +305,4 @@ build/obj/fuzzing_coverage/%.o: %.c $(USAGE_FILES)
 clean:
 	rm -fr build/bin build/coverage_report build/fuzzers build/obj build/pdf build/unittest build/doxygen SCF/ \
 		build/reference_database.csv bin/*_usage.h ./crossvalidation/README_crossvalidation.pdf ./testdata/.generated \
-		build/requirements_traceability_matrix.md ./testdata/{unittest_samples,prebuilt_codecs}
+		build/requirements_traceability_matrix.md ./testdata/{unittest_samples,prebuilt_codecs} build/*.info build/prebuilt_codecs

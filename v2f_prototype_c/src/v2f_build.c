@@ -39,7 +39,7 @@ v2f_error_t v2f_build_minimal_codec(
     RETURN_IF_FAIL(v2f_decorrelator_create(
             decorrelator,
             V2F_C_DECORRELATOR_MODE_NONE,
-            (v2f_sample_t) ((1 << (8 * bytes_per_word)) - 1)));
+            (v2f_sample_t) ((1 << (8 * bytes_per_word)) - 1), 0));
 
     // Build the entropy entropy_coder and entropy_decoder
     v2f_entropy_coder_t *entropy_coder = malloc(sizeof(v2f_entropy_coder_t));
@@ -120,6 +120,8 @@ v2f_error_t v2f_build_minimal_forest(
             sizeof(v2f_entropy_coder_entry_t *));
     if (null_entry == NULL) {
         return V2F_E_OUT_OF_MEMORY; // LCOV_EXCL_LINE
+    } else {
+        decoder->null_entry = null_entry;
     }
     null_entry[0] = NULL;
 
@@ -157,6 +159,7 @@ v2f_error_t v2f_build_minimal_forest(
                 free(pointers[i]);
             }
         }
+        free(null_entry);
         return V2F_E_OUT_OF_MEMORY;
         // LCOV_EXCL_STOP
     }
@@ -209,6 +212,7 @@ v2f_error_t v2f_build_minimal_forest(
                 free(pointers[i]);
             }
         }
+        free(null_entry);
         return V2F_E_OUT_OF_MEMORY;
         // LCOV_EXCL_STOP
     }
@@ -240,6 +244,7 @@ v2f_error_t v2f_build_minimal_forest(
                 free(pointers[i]);
             }
         }
+        free(null_entry);
         return status;
         // LCOV_EXCL_STOP
     }
@@ -271,6 +276,7 @@ v2f_error_t v2f_build_minimal_forest(
                         free(pointers[i]);
                     }
                 }
+                free(null_entry);
                 return V2F_E_OUT_OF_MEMORY;
                 // LCOV_EXCL_STOP
             }
@@ -293,6 +299,7 @@ v2f_error_t v2f_build_minimal_forest(
     status = v2f_entropy_decoder_create(
             decoder, decoder_roots, root_count, bytes_per_word,
             bytes_per_word);
+    decoder->null_entry = null_entry;
     if (status != V2F_E_NONE) {
         // LCOV_EXCL_START
         for (uint32_t d = 0; d < entry_count; d++) {
@@ -304,6 +311,7 @@ v2f_error_t v2f_build_minimal_forest(
                 free(pointers[i]);
             }
         }
+        free(null_entry);
         return status;
         // LCOV_EXCL_STOP
     }

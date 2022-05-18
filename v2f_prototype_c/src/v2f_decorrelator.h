@@ -21,6 +21,8 @@
  * @param decorrelator pointer to decorrelator to initialize
  * @param mode mode index that identifies this decorrelator
  * @param max_sample_value max original sample value
+ * @param samples_per_row number of samples per row (image width), used only for
+ *   decorrelator modes 3 and 4.
  * @return
  *  - @ref V2F_E_NONE : Creation successfull
  *  - @ref V2F_E_INVALID_PARAMETER : At least one invalid parameter
@@ -28,7 +30,8 @@
 v2f_error_t v2f_decorrelator_create(
         v2f_decorrelator_t *decorrelator,
         v2f_decorrelator_mode_t mode,
-        v2f_sample_t max_sample_value);
+        v2f_sample_t max_sample_value,
+        uint64_t samples_per_row);
 
 /**
  * Code the prediction error of sample_value
@@ -159,6 +162,38 @@ v2f_error_t v2f_decorrelator_apply_2_left_prediction(
  *  - @ref V2F_E_INVALID_PARAMETER : At least one invalid parameter
  */
 v2f_error_t v2f_decorrelator_inverse_2_left_prediction(
+        v2f_decorrelator_t *decorrelator,
+        v2f_sample_t *input_samples,
+        uint64_t sample_count);
+
+/**
+ * Apply FGIJ decorrelation using:
+ *
+ * - The first two samples of each row and the entire first row uses prediction 0
+ *
+ * @param decorrelator initialized decorrelator
+ * @param input_samples data to be decorrelated
+ * @param sample_count number of samples to be decorrelated
+ * @return
+ *  - @ref V2F_E_NONE : Creation successfull
+ *  - @ref V2F_E_INVALID_PARAMETER : At least one invalid parameter
+ */
+v2f_error_t v2f_decorrelator_apply_fgij_prediction(
+        v2f_decorrelator_t *decorrelator,
+        v2f_sample_t *input_samples,
+        uint64_t sample_count);
+
+/**
+ * Apply inverse decorrelation to FGIJ using:
+ *
+ * @param decorrelator initialized decorrelator
+ * @param input_samples data to be decorrelated
+ * @param sample_count number of samples
+ * @return
+ *  - @ref V2F_E_NONE : Creation successfull
+ *  - @ref V2F_E_INVALID_PARAMETER : At least one invalid parameter
+ */
+v2f_error_t v2f_decorrelator_inverse_fgij_prediction(
         v2f_decorrelator_t *decorrelator,
         v2f_sample_t *input_samples,
         uint64_t sample_count);

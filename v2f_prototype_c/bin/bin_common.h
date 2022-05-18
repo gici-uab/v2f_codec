@@ -40,6 +40,24 @@ int parse_integer(char const *const str, int32_t *const output,
 int parse_positive_integer(char const *const str, uint32_t *const output,
                            char const *const key);
 
+/**
+ * Parse a list of positive integers separated by commas
+ * and store it in a newly allocated array.
+ *
+ * @param str string to be parsed.
+ * @param output address of a pointer that will be assigned to a newly
+ *   allocated array of uint32_t, with the parsed integers. The user
+ *   is responsible of freeing the allocated array.
+ * @param output_length address of a variable where the number of elements in output is to be
+ *   stored.
+ *
+ * @return 0 if and only if the string could be correctly parsed and did not contain any
+ *   weird syntax (e.g., anything but numbers and commas, two or more consecutive commas,
+ *   or a comma at the beginning or the end of the string). If any other value is returned,
+ *   output and output_length are not modified.
+ */
+int parse_positive_integer_list(char const *const str, uint32_t ** output, uint32_t* output_length);
+
 void show_banner(void);
 
 #endif

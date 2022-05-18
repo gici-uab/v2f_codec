@@ -38,7 +38,8 @@ v2f_error_t v2f_file_write_codec(
         || compressor->decorrelator->max_sample_value < 1) {
         log_error("quantizer_mode = %u", compressor->quantizer->mode);
         log_error("decorrelator_mode = %u", compressor->decorrelator->mode);
-        log_error("max_sample_value = %u", compressor->decorrelator->max_sample_value);
+        log_error("max_sample_value = %u",
+                  compressor->decorrelator->max_sample_value);
         return V2F_E_INVALID_PARAMETER;
     }
 
@@ -139,7 +140,7 @@ v2f_error_t v2f_file_read_codec(
     v2f_error_t quantizer_status = v2f_quantizer_create(
             quantizer, quantizer_mode, step_size, max_sample_value);
     v2f_error_t decorrelator_status = v2f_decorrelator_create(
-            decorrelator, decorrelator_mode, max_sample_value);
+            decorrelator, decorrelator_mode, max_sample_value, 0);
     if (quantizer_status != V2F_E_NONE || decorrelator_status != V2F_E_NONE) {
         for (uint32_t i = 0; i < sizeof(pointers) / sizeof(void *); i++) {
             if (pointers[i] == NULL) {
@@ -1142,7 +1143,10 @@ int v2f_file_compress_from_path(
         bool overwrite_qstep,
         v2f_sample_t step_size,
         bool overwrite_decorrelator_mode,
-        v2f_decorrelator_mode_t decorrelator_mode) {
+        v2f_decorrelator_mode_t decorrelator_mode,
+        v2f_sample_t samples_per_row,
+        uint32_t *shadow_y_pairs,
+        uint32_t y_shadow_count) {
 
     // Basic parameter verification
     if (raw_file_path == NULL || header_file_path == NULL ||
@@ -1153,6 +1157,22 @@ int v2f_file_compress_from_path(
         || (overwrite_decorrelator_mode &&
             decorrelator_mode > V2F_C_DECORRELATOR_MODE_COUNT)) {
         log_error("Invalid parameters");
+        return 1;
+    }
+
+    if ((decorrelator_mode == V2F_C_DECORRELATOR_MODE_JPEG_LS
+         || decorrelator_mode == V2F_C_DECORRELATOR_MODE_FGIJ)
+        && samples_per_row == 0) {
+        log_error(
+                "Samples per row was not provided, but a decorrelator mode that "
+                "requires it was selected");
+        return 1;
+    }
+
+    if ((shadow_y_pairs == NULL && y_shadow_count != 0)
+        || (y_shadow_count != 0 && shadow_y_pairs == NULL)
+        || (y_shadow_count != 0 && samples_per_row == 0)) {
+        log_error("Invalid shadow description");
         return 1;
     }
 
@@ -1184,7 +1204,8 @@ int v2f_file_compress_from_path(
             raw_file, header_file, output_file,
             overwrite_quantizer_mode, quantizer_mode,
             overwrite_qstep, step_size,
-            overwrite_decorrelator_mode, decorrelator_mode);
+            overwrite_decorrelator_mode, decorrelator_mode, samples_per_row,
+            shadow_y_pairs, y_shadow_count);
 
     // Cleanup
     fclose(raw_file);
@@ -1204,9 +1225,18 @@ int v2f_file_compress_from_file(
         bool overwrite_qstep,
         v2f_sample_t step_size,
         bool overwrite_decorrelator_mode,
-        v2f_decorrelator_mode_t decorrelator_mode) {
+        v2f_decorrelator_mode_t decorrelator_mode,
+        v2f_sample_t samples_per_row,
+        uint32_t *shadow_y_pairs,
+        uint32_t y_shadow_count) {
     if (raw_file == NULL || header_file == NULL || output_file == NULL) {
         log_error("Invalid parameters");
+        return 1;
+    }
+    if ((shadow_y_pairs == NULL && y_shadow_count != 0)
+        || (y_shadow_count != 0 && shadow_y_pairs == NULL)
+        || (y_shadow_count != 0 && samples_per_row == 0)) {
+        log_error("Invalid shadow description");
         return 1;
     }
 
@@ -1230,6 +1260,7 @@ int v2f_file_compress_from_file(
     if (overwrite_decorrelator_mode) {
         compressor.decorrelator->mode = decorrelator_mode;
     }
+    compressor.decorrelator->samples_per_row = samples_per_row;
 
     // Prepare buffers for the worst case
     // (full block with 1 word per input sample)
@@ -1254,47 +1285,81 @@ int v2f_file_compress_from_file(
     }
 
     // Compress the blocks and output the block envelopes.
-    // Samples are read in blocks of at most V2F_C_MAX_BLOCK_SIZE elements.
+    // Samples are read in blocks of at most V2F_C_MAX_BLOCK_SIZE elements
+    // If the number of samples per row is provided and not zero, then
+    // blocks are also guaranteed to have length a multiple of that number.
+    // Block size may be smaller in case shadow regions are defined.
     // When an EOF is found, reading is stoped.
     v2f_error_t status = V2F_E_NONE;
     bool continue_reading = true;
+    // Total number of samples coded so far
+    uint64_t processed_sample_count = 0;
+    // Total number of shadow regions processed so far
+    uint32_t processed_shadow_count = 0;
     while (continue_reading && status == V2F_E_NONE) {
+        // Determine the length of the next block to be read
+        uint64_t next_block_length = V2F_C_MAX_BLOCK_SIZE;
+        if (samples_per_row > 0) {
+            next_block_length -= V2F_C_MAX_BLOCK_SIZE % samples_per_row;
+        }
+        bool is_shadow_block = false;
+        if (processed_shadow_count < y_shadow_count) {
+            const uint64_t next_shadow_sample_index =
+                    shadow_y_pairs[2 * processed_shadow_count] * samples_per_row;
+            if (processed_sample_count == next_shadow_sample_index) {
+                is_shadow_block = true;
+                next_block_length = samples_per_row *
+                                    (shadow_y_pairs[2 * processed_shadow_count + 1]
+                                     - shadow_y_pairs[2 * processed_shadow_count]
+                                     + 1);
+            } else if (processed_sample_count + next_block_length > next_shadow_sample_index) {
+                next_block_length = next_shadow_sample_index - processed_sample_count;
+            }
+        }
+
         // Read a raw block
         uint64_t read_sample_count;
         status = v2f_file_read_big_endian(
-                raw_file, input_sample_buffer, V2F_C_MAX_BLOCK_SIZE,
+                raw_file, input_sample_buffer, next_block_length,
                 decompressor.entropy_decoder->bytes_per_sample,
                 &read_sample_count);
         if (status != V2F_E_NONE && status != V2F_E_UNEXPECTED_END_OF_FILE) {
-            log_error("Error reading input samples");
+            log_error("Error reading input samples (different from EOF)");
             break;
         }
-        if (status != V2F_E_NONE) {
-            // No more blocks will be read after this one.
-            continue_reading = false;
-        }
-
+        continue_reading = (status == V2F_E_NONE);
         if (read_sample_count == 0) {
             log_info("No more samples available");
             assert(status == V2F_E_UNEXPECTED_END_OF_FILE);
             status = V2F_E_NONE;
             break;
         }
+        if (samples_per_row > 0 && read_sample_count % samples_per_row != 0) {
+            log_error("The image did not have a size multiple of the provided samples per row");
+            status = V2F_E_CORRUPTED_DATA;
+            break;
+        }
 
-        log_info("Enveloping block of %lu samples...", read_sample_count);
+        log_info("Enveloping block of %lu samples (shadow=%d)...",
+                 read_sample_count, (int) is_shadow_block);
 
         // Compress the read block whenever a complete or partial block is read
-        if (status == V2F_E_NONE || (status == V2F_E_UNEXPECTED_END_OF_FILE &&
-                                     read_sample_count > 0)) {
-            // Compress the block
-            log_debug("\tcompressing block...");
-            uint64_t written_byte_count;
-            status = v2f_compressor_compress_block(
-                    &compressor, input_sample_buffer, read_sample_count,
-                    compressed_block_buffer, &written_byte_count);
+        if (status == V2F_E_NONE
+            || (status == V2F_E_UNEXPECTED_END_OF_FILE && read_sample_count > 0)) {
+            assert(read_sample_count <= V2F_SAMPLE_T_MAX);
 
-            log_debug("\tsending envelope...");
-            if (status == V2F_E_NONE) {
+            if (! is_shadow_block) {
+                // Compress the block
+                log_debug("\tcompressing block...");
+                uint64_t written_byte_count;
+                status = v2f_compressor_compress_block(
+                        &compressor, input_sample_buffer, read_sample_count,
+                        compressed_block_buffer, &written_byte_count);
+                if (status != V2F_E_NONE) {
+                    break;
+                }
+
+                log_debug("\tsending envelope...");
                 // Generate the envelope only if compression is successful.
 
                 // 1 - `compressed_bitstream_size`: 4 bytes, unsigned big-endian integer.
@@ -1302,17 +1367,15 @@ int v2f_file_compress_from_file(
                     assert(written_byte_count <= V2F_SAMPLE_T_MAX);
                     v2f_sample_t compressed_bitstream_size =
                             (v2f_sample_t) written_byte_count;
-                    status = v2f_file_write_big_endian(output_file,
-                                                       &compressed_bitstream_size,
-                                                       1, 4);
-                }
-                if (status != V2F_E_NONE) {
-                    break;
+                    status = v2f_file_write_big_endian(
+                            output_file, &compressed_bitstream_size, 1, 4);
+                    if (status != V2F_E_NONE) {
+                        break;
+                    }
                 }
 
                 // 2 - `sample_count`: 4 bytes, unsigned big-endian integer.
                 {
-                    assert(read_sample_count <= V2F_SAMPLE_T_MAX);
                     v2f_sample_t casted_sample_count = (v2f_sample_t) read_sample_count;
                     status = v2f_file_write_big_endian(
                             output_file, &casted_sample_count, 1, 4);
@@ -1323,18 +1386,56 @@ int v2f_file_compress_from_file(
                 }
 
                 // 3 - `compressed_bitstream`: `compressed_bitstream_size` `bytes`.
-                if (fwrite(compressed_block_buffer,
-                           1, written_byte_count, output_file)
+                if (fwrite(compressed_block_buffer, 1, written_byte_count, output_file)
                     != written_byte_count) {
                     log_error("Error writing the compressed block");
                     status = V2F_E_IO;
                 }
 
-                log_info(
-                        "... successfully enveloped %lu samples into a %lu byte bitstream.",
-                        read_sample_count, written_byte_count);
+                log_info("... successfully enveloped %lu samples into a %lu byte bitstream.",
+                         read_sample_count, written_byte_count);
+            } else {
+                // It is a shadow block
+                // 1 - `compressed_bitstream_size`: 4 bytes, unsigned big-endian integer (zero)
+                {
+                    v2f_sample_t sample_zero = 0;
+                    status = v2f_file_write_big_endian(
+                            output_file, &sample_zero, 1, 4);
+                    if (status != V2F_E_NONE) {
+                        break;
+                    }
+                }
+
+                // 2 - `sample_count`: 4 bytes, unsigned big-endian integer.
+                {
+                    v2f_sample_t casted_sample_count = (v2f_sample_t) read_sample_count;
+                    status = v2f_file_write_big_endian(
+                            output_file, &casted_sample_count, 1, 4);
+                    read_sample_count = casted_sample_count;
+                    if (status != V2F_E_NONE) {
+                        break;
+                    }
+                }
+
+                // 3 - `compressed_bitstream`: empty because it is a shadow region
+
+                log_info("... successfully enveloped %lu shadow samples into a 0 byte bitstream.",
+                         read_sample_count);
             }
+
+            processed_sample_count += read_sample_count;
         }
+
+        if (is_shadow_block) {
+            processed_shadow_count++;
+        }
+    }
+    log_info("Processed %lu samples in total", processed_sample_count);
+    if (processed_shadow_count < y_shadow_count) {
+        log_warning("Processed only %u out of %u shadow regions. "
+                    "The remaining regions lie beyond the encountered EOF "
+                    "and are ignored.\n",
+                    processed_shadow_count, y_shadow_count);
     }
 
     // Cleanup and report status
@@ -1356,7 +1457,8 @@ int v2f_file_decompress_from_path(
         bool overwrite_qstep,
         v2f_sample_t step_size,
         bool overwrite_decorrelator_mode,
-        v2f_decorrelator_mode_t decorrelator_mode) {
+        v2f_decorrelator_mode_t decorrelator_mode,
+        v2f_sample_t samples_per_row) {
 
     // Basic parameter verification
     if (compressed_file_path == NULL || header_file_path == NULL ||
@@ -1367,6 +1469,15 @@ int v2f_file_decompress_from_path(
         || (overwrite_decorrelator_mode &&
             decorrelator_mode > V2F_C_DECORRELATOR_MODE_COUNT)) {
         log_error("Invalid parameters");
+        return 1;
+    }
+
+    if ((decorrelator_mode == V2F_C_DECORRELATOR_MODE_JPEG_LS
+         || decorrelator_mode == V2F_C_DECORRELATOR_MODE_FGIJ)
+        && samples_per_row == 0) {
+        log_error(
+                "Samples per row was not provided, but a decorrelator mode that "
+                "requires it was selected");
         return 1;
     }
 
@@ -1398,7 +1509,7 @@ int v2f_file_decompress_from_path(
             compressed_file, header_file, reconstructed_file,
             overwrite_quantizer_mode, quantizer_mode,
             overwrite_qstep, step_size,
-            overwrite_decorrelator_mode, decorrelator_mode);
+            overwrite_decorrelator_mode, decorrelator_mode, samples_per_row);
 
     // Cleanup
     fclose(compressed_file);
@@ -1418,7 +1529,8 @@ int v2f_file_decompress_from_file(
         bool overwrite_qstep,
         v2f_sample_t step_size,
         bool overwrite_decorrelator_mode,
-        v2f_decorrelator_mode_t decorrelator_mode) {
+        v2f_decorrelator_mode_t decorrelator_mode,
+        v2f_sample_t samples_per_row) {
     if (compressed_file == NULL
         || header_file == NULL
         || reconstructed_file == NULL) {
@@ -1445,6 +1557,7 @@ int v2f_file_decompress_from_file(
     if (overwrite_decorrelator_mode) {
         compressor.decorrelator->mode = decorrelator_mode;
     }
+    compressor.decorrelator->samples_per_row = samples_per_row;
 
     // Prepare buffers for the worst case
     // (full block with 1 word per input sample)
@@ -1488,61 +1601,69 @@ int v2f_file_decompress_from_file(
                 break;
             }
         }
-        if (compressed_bitstream_size == 0
-            || compressed_bitstream_size > V2F_C_MAX_COMPRESSED_BLOCK_SIZE
+        const bool is_shadow_block = (compressed_bitstream_size == 0);
+
+        if (compressed_bitstream_size > V2F_C_MAX_COMPRESSED_BLOCK_SIZE
             || (compressed_bitstream_size %
                 compressor.entropy_coder->bytes_per_word
                 != 0)) {
             status = V2F_E_CORRUPTED_DATA;
-            log_error("Corrupted envelope?");
+            log_error("Corrupted envelope (compressed_bitstream_size=%u)",
+                      compressed_bitstream_size);
             break;
         }
 
         // 2 - `sample_count`: 4 bytes, unsigned big-endian integer.
         v2f_sample_t sample_count;
-        status = v2f_file_read_big_endian(
-                compressed_file, &sample_count, 1, 4, NULL);
-        if (status != V2F_E_NONE) {
-            break;
-        }
-        if (sample_count < V2F_C_MIN_BLOCK_SIZE
-            || sample_count > V2F_C_MAX_BLOCK_SIZE) {
-            status = V2F_E_CORRUPTED_DATA;
-            log_error("Corrupted envelope?");
-            break;
-        }
-
-        // 3 - `compressed_bitstream`: `compressed_bitstream_size` `bytes`.
-        if (fread(compressed_block_buffer, 1,
-                  compressed_bitstream_size, compressed_file)
-            != compressed_bitstream_size) {
-            status = V2F_E_CORRUPTED_DATA;
-            log_error("Corrupted envelope?");
-            break;
-        }
-
-        // At this point, data have been successfully read.
-        // Now decode the envelope.
         {
-            uint64_t decoded_sample_count;
-            status = v2f_decompressor_decompress_block(
-                    &decompressor, compressed_block_buffer,
-                    compressed_bitstream_size, sample_count,
-                    output_sample_buffer, &decoded_sample_count);
-            if (decoded_sample_count != sample_count) {
-                // The field and the actual number of samples shall match
+            status = v2f_file_read_big_endian(
+                    compressed_file, &sample_count, 1, 4, NULL);
+            if (status != V2F_E_NONE) {
+                break;
+            }
+            if (sample_count < V2F_C_MIN_BLOCK_SIZE
+                || sample_count > V2F_C_MAX_BLOCK_SIZE) {
                 status = V2F_E_CORRUPTED_DATA;
+                log_error("Corrupted envelope (sample_count=%u)", sample_count);
+                break;
             }
         }
-        if (status != V2F_E_NONE) {
-            log_error("Error decoding the envelope.");
-            break;
+
+        if (!is_shadow_block) {
+            // 3 - `compressed_bitstream`: `compressed_bitstream_size` `bytes`.
+            if (fread(compressed_block_buffer, 1,
+                      compressed_bitstream_size, compressed_file)
+                != compressed_bitstream_size) {
+                status = V2F_E_CORRUPTED_DATA;
+                log_error("Corrupted envelope?");
+                break;
+            }
+
+            // At this point, data have been successfully read.
+            // Now decode the envelope.
+            {
+                uint64_t decoded_sample_count;
+                status = v2f_decompressor_decompress_block(
+                        &decompressor, compressed_block_buffer,
+                        compressed_bitstream_size, sample_count,
+                        output_sample_buffer, &decoded_sample_count);
+                if (decoded_sample_count != sample_count) {
+                    // The field and the actual number of samples shall match
+                    status = V2F_E_CORRUPTED_DATA;
+                }
+            }
+            if (status != V2F_E_NONE) {
+                log_error("Error decoding the envelope.");
+                break;
+            }
+
+            log_info("Decoded an envelop with %u samples.", sample_count);
+        } else {
+            memset(output_sample_buffer, 0, sizeof(v2f_sample_t) * sample_count);
+            log_info("Received a shadow envelop with %u samples.", sample_count);
         }
 
-        log_info("Decoded an envelop with %u samples.", sample_count);
-
-        // Finally output the samples to the file
-        // Write Output File
+        // Finally output the samples to the output file
         status = v2f_file_write_big_endian(
                 reconstructed_file,
                 output_sample_buffer,

@@ -37,7 +37,6 @@ int main(void) {
         return (int) CU_get_error(); // LCOV_EXCL_LINE
     }
 
-    // TODO: prerelease: uncomment all (keep this comment until final release)
     register_timer();
     register_build();
     register_entropy_codec();
@@ -45,6 +44,7 @@ int main(void) {
     register_quantizer();
     register_decorrelator();
     register_compressor_decompressor();
+    register_bin_common();
 
     //CU_basic_set_mode(CU_BRM_NORMAL);
     CU_basic_set_mode(CU_BRM_VERBOSE);

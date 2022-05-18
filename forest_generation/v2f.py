@@ -24,12 +24,10 @@ import datetime
 import bitstream
 from sources import Source, Symbol
 
+import enb
 from enb.config import get_options
 
 options = get_options()
-
-sys.setrecursionlimit(2 ** 16)
-
 
 # Implementation of the internal V2F codec interface.
 # See below for enb compatible interface.
@@ -173,8 +171,12 @@ class TreeNode:
     @property
     def all_children(self):
         nodes = [self] if self.parent is not None else []
-        for c in self.symbol_to_node.values():
-            nodes += c.all_children
+        pending_nodes = list(self.symbol_to_node.values())
+        
+        while pending_nodes:
+            next_node = pending_nodes.pop()
+            nodes.append(next_node)
+            pending_nodes.extend(next_node.symbol_to_node.values())
 
         return nodes
 
@@ -660,7 +662,10 @@ class FastYamamotoTree(YamamotoTree):
 
         # In UAB's modification of Yamamoto, a single node is always added at a time.
         # Therefore, the exact number of iterations is known in advance
-        for _ in range(self.size - len(self.source.symbols)):
+        for node_count in range(self.size - len(self.source.symbols)):
+            if node_count % 5000 == 0:
+                enb.logger.info(f"Forest generation {self.source} :: processed {node_count} nodes")
+
             # The most probable node is expanded next
             _, _, hat_n = heapq.heappop(hat_n_heap)
 
@@ -681,6 +686,8 @@ class FastYamamotoTree(YamamotoTree):
                 next_node = hat_n.add_child(self.source.symbols[-1])
                 heapq.heappush(hat_n_heap, (-next_node.word_probability, 0, next_node))
                 assert next_node.word_probability == 0
+
+        enb.logger.info(f"Forest generation {self.source} :: processed all nodes")
 
 
 class Forest(AbstractV2FCodec):
@@ -786,6 +793,8 @@ class Forest(AbstractV2FCodec):
 
             # Root entries
             for i, tree in enumerate(self.trees):
+                enb.logger.info(f"Dumping {i}-th tree")
+
                 root_entries = sorted(tree.root.all_children,
                                       # A good tree should produce homogeneously distributed words
                                       key=lambda node: node.raw_word_probability,
@@ -802,37 +811,42 @@ class Forest(AbstractV2FCodec):
                 obs.put_unsigned_value(root_included_count, 8 * 4)
 
                 # Tree entries (sorted by probability of having to access the node
-                for index, node in enumerate(root_entries):
-                    # Index
-                    obs.put_unsigned_value(index, 8 * bytes_per_index)
+                with enb.logger.info_context(f"Dumping nodes of {i}-th tree"):
+                    for index, node in enumerate(root_entries):
+                        if index % 5000 == 0:
+                            enb.logger.info(f"Dumping node #{index}")
 
-                    # Number of children
-                    obs.put_unsigned_value(len(node.symbol_to_node), 8 * 4)
+                        # Index
+                        obs.put_unsigned_value(index, 8 * bytes_per_index)
 
-                    # children indices
-                    for symbol, child_node in sorted(node.symbol_to_node.items()):
-                        obs.put_unsigned_value(root_entries.index(child_node), 8 * bytes_per_index)
+                        # Number of children
+                        obs.put_unsigned_value(len(node.symbol_to_node), 8 * 4)
 
-                    # fields for included nodes
-                    if len(node.symbol_to_node) < len(self.source.symbols):
-                        # Sample count
-                        word = node.word
-                        obs.put_unsigned_value(len(word), 8 * 2)
+                        # children indices
+                        for symbol, child_node in sorted(node.symbol_to_node.items()):
+                            obs.put_unsigned_value(root_entries.index(child_node), 8 * bytes_per_index)
 
-                        # Sample bytes
-                        for symbol in word:
-                            obs.put_unsigned_value(int(symbol.label), 8 * bytes_per_sample)
+                        # fields for included nodes
+                        if len(node.symbol_to_node) < len(self.source.symbols):
+                            # Sample count
+                            word = node.word
+                            obs.put_unsigned_value(len(word), 8 * 2)
 
-                        # word
-                        obs.put_unsigned_value(root_included_entries.index(node), 8 * bytes_per_word)
+                            # Sample bytes
+                            for symbol in word:
+                                obs.put_unsigned_value(int(symbol.label), 8 * bytes_per_sample)
+
+                            # word
+                            obs.put_unsigned_value(root_included_entries.index(node), 8 * bytes_per_word)
 
                 # Root children count and indices
-                obs.put_unsigned_value(len(tree.root.symbol_to_node), 8 * 4)
+                with enb.logger.info_context("Dumping root node"):
+                    obs.put_unsigned_value(len(tree.root.symbol_to_node), 8 * 4)
 
-                for i, (symbol, node) in enumerate(sorted(tree.root.symbol_to_node.items(),
-                                                          key=lambda t: t[0].label)):
-                    obs.put_unsigned_value(root_entries.index(node), 8 * bytes_per_index)
-                    obs.put_unsigned_value(symbol.label, 8 * bytes_per_sample)
+                    for i, (symbol, node) in enumerate(sorted(tree.root.symbol_to_node.items(),
+                                                              key=lambda t: t[0].label)):
+                        obs.put_unsigned_value(root_entries.index(node), 8 * bytes_per_index)
+                        obs.put_unsigned_value(symbol.label, 8 * bytes_per_sample)
 
     def dump_pickle(self, output_path):
         """Dump a pickle of this forest.
@@ -1036,15 +1050,12 @@ class YamamotoForest(Forest):
 
     def build(self):
         for i, size in enumerate(self.tree_sizes):
-            if options.verbose > 2:
-                print(f"[i] Building yamamoto tree #{i} "
-                      f"with {len(self.source.symbols)} symbols "
-                      f"and size {size} "
-                      f"@ {datetime.datetime.now()}")
-            elif options.verbose > 2:
-                sys.stdout.write(".")
-                sys.stdout.flush()
-            self.trees.append(self.yamamoto_tree_class(size=size, source=self.source, first_allowed_symbol_index=i))
+            with enb.logger.info_context(f"Building yamamoto tree #{i} "
+                                         f"with {len(self.source.symbols)} symbols "
+                                         f"and size {size} "
+                                         f"@ {datetime.datetime.now()}"):
+                self.trees.append(self.yamamoto_tree_class(size=size, source=self.source, first_allowed_symbol_index=i))
+
         for node in self.included_nodes:
             self.node_to_next_tree[node] = self.trees[min(len(self.trees) - 1, len(node.symbol_to_node))]
         self.current_tree = self.trees[0]

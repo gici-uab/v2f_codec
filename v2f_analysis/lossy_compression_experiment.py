@@ -10,8 +10,11 @@ import re
 import glob
 import enb
 import pandas as pd
+import time
 from enb.config import options
 
+for plugin in ["jpeg", "kakadu", "v2f", "lcnl"]:
+    enb.plugins.install(plugin)
 try:
     from plugins import jpeg, kakadu, v2f, lcnl
 except ImportError as ex:
@@ -46,9 +49,11 @@ class LossyExperiment(enb.icompression.LossyCompressionExperiment):
             elif decorrelator_mode == v2f.V2F_C_DECORRELATOR_MODE_LEFT:
                 return "Left neighbor prediction"
             elif decorrelator_mode == v2f.V2F_C_DECORRELATOR_MODE_2_LEFT:
-                return "Two left neighbors prediction"
+                return "Two left neighbor prediction"
             elif decorrelator_mode == v2f.V2F_C_DECORRELATOR_MODE_JPEGLS:
                 return "JPEG-LS prediction"
+            elif decorrelator_mode == v2f.V2F_C_DECORRELATOR_MODE_FGIJ:
+                return "Four neighbor prediction"
             else:
                 raise KeyError(decorrelator_mode)
         except KeyError:
@@ -112,6 +117,9 @@ class LossyExperiment(enb.icompression.LossyCompressionExperiment):
         if not isinstance(codec, v2f.V2FCodec):
             row[_column_name] = row["compression_time_seconds"]
         else:
+            while os.path.getsize(codec.get_time_path(path)) == 0:
+                print(">>>> Waiting...")
+                time.sleep(1)
             time_df = pd.read_csv(codec.get_time_path(path))
             row[_column_name] = float(time_df[time_df["name"] == "v2f_compressor_compress_block"]["total_cpu_seconds"])
 
@@ -119,11 +127,11 @@ class LossyExperiment(enb.icompression.LossyCompressionExperiment):
 if __name__ == '__main__':
     # If uncommented, it slows down computation but prevents ram hoarding and
     # out of memory problems with large images:
+    options.persistence_dir = os.path.join("persistence", "persistence_lossy_compression_experiment")
+    options.chunk_size = 2048 if options.chunk_size is None else options.chunk_size
+    options.plot_dir = os.path.join("plots", "lossy_compression")
 
-    options.base_tmp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tmp")
-    options.persistence_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                           "persistence", "persistence_lossy_compression_experiment.py")
-    options.chunk_size = 256
+    shadow_regions = [(1200, 1300), (2510, 2600), (3816, 3910)]
 
     codecs = []
     task_families = []
@@ -151,36 +159,47 @@ if __name__ == '__main__':
     task_families.append(ccsds_family)
 
     qsteps = [2, 3, 4, 5, 6, 7, 8]
-    v2fc_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prebuilt_codecs")
+    v2fc_dir = "prebuilt_codecs"
     v2fc_path_list = []
 
     for q in qsteps:
         v2fc_path_list += list(glob.glob(os.path.join(v2fc_dir, f"q{q}", "**", "*treecount-1*.v2fc"), recursive=True))
-        v2fc_path_list += list(glob.glob(os.path.join(v2fc_dir, f"q{q}", "**", "*treecount-4*.v2fc"), recursive=True))
-        v2fc_path_list += list(glob.glob(os.path.join(v2fc_dir, f"q{q}", "**", "*treecount-8*.v2fc"), recursive=True))
+        # v2fc_path_list += list(glob.glob(os.path.join(v2fc_dir, f"q{q}", "**", "*treecount-2*.v2fc"), recursive=True))
+        # v2fc_path_list += list(glob.glob(os.path.join(v2fc_dir, f"q{q}", "**", "*treecount-3*.v2fc"), recursive=True))
+        # v2fc_path_list += list(glob.glob(os.path.join(v2fc_dir, f"q{q}", "**", "*treecount-4*.v2fc"), recursive=True))
+        # v2fc_path_list += list(glob.glob(os.path.join(v2fc_dir, f"q{q}", "**", "*treecount-8*.v2fc"), recursive=True))
     v2fc_path_list = [os.path.relpath(p, enb.config.options.project_root) for p in v2fc_path_list]
 
     v2f_families_by_name = dict()
 
+    # Combine all QP-trained forests with their corresponding prediction modes,
+    # while ignoring the PQ-trained forests.
+    # Each combination is considered without coding the shadow regions so as not to distort the PSNR.
     for v2fc_path in v2fc_path_list:
         qstep = int(re.search(r"_qstep-(\d+)", os.path.basename(v2fc_path)).group(1))
         treecount = int(re.search(r"_treecount-(\d+)", os.path.basename(v2fc_path)).group(1))
-        if "prediction_W" in os.path.abspath(v2fc_path):
+        if "prediction_W" in os.path.abspath(v2fc_path).split(os.sep):
             prediction_label = "W"
             decorrelator_mode = v2f.V2F_C_DECORRELATOR_MODE_LEFT
-        elif "prediction_IJ" in os.path.abspath(v2fc_path):
+        elif "prediction_IJ" in os.path.abspath(v2fc_path).split(os.sep):
             decorrelator_mode = v2f.V2F_C_DECORRELATOR_MODE_2_LEFT
             prediction_label = r"(W1+W2) / 2"
-        elif "prediction_JLS" in os.path.abspath(v2fc_path):
+        elif "prediction_JLS" in os.path.abspath(v2fc_path).split(os.sep):
             decorrelator_mode = v2f.V2F_C_DECORRELATOR_MODE_JPEGLS
             prediction_label = "JPEGLS"
+        elif "prediction_FGJI" in os.path.abspath(v2fc_path).split(os.sep):
+            decorrelator_mode = v2f.V2F_C_DECORRELATOR_MODE_FGIJ
+            prediction_label = "FGIJ"
         else:
-            raise ValueError(f"Unsupported decorrelator mode for {repr(os.path.abspath(v2fc_path))}")
+            enb.logger.info(f"Not using forest {repr(os.path.abspath(v2fc_path))}")
+            continue
+
         c = v2f.v2f_codecs.V2FCodec(
             v2fc_header_path=v2fc_path,
             qstep=qstep, decorrelator_mode=decorrelator_mode,
             quantizer_mode=v2f.V2F_C_QUANTIZER_MODE_UNIFORM,
-            time_results_dir=os.path.join(options.persistence_dir, "time_results"))
+            time_results_dir=os.path.join(options.persistence_dir, "time_results"),
+            verify_on_initialization=False)
         codecs.append(c)
         family_name = f"V2F {prediction_label}, {treecount} tree{'s' if treecount > 1 else ''}"
         codec_label = f"{c.label} Qstep {c.param_dict['qstep']}" \
@@ -201,39 +220,15 @@ if __name__ == '__main__':
     # Generate pandas dataframe with results. Persistence is automatically added
     df = exp.get_df()
 
-    # Plot some relevant results
-    scalar_columns = [
-        "compression_ratio_dr", "bpppc", "compression_efficiency_1byte_entropy",
-        "pae", "psnr_bps", "psnr_dr"]
     column_pairs = [
         ("bpppc", "pae"), ("bpppc", "psnr_dr"), ("qstep", "bpppc"), ("qstep", "psnr_dr"), ("qstep", "pae"),
         ("qstep", "compression_ratio_dr"),
         ("bpppc", "block_coding_time_seconds"),
-        ("pae", "block_coding_time_seconds")
+        ("pae", "block_coding_time_seconds"),
+        ("pae", "bpppc"),
     ]
-    # Scalar column analysis
-    scalar_analyzer = enb.aanalysis.ScalarNumericAnalyzer(
-        csv_support_path=os.path.join(
-            options.analysis_dir, "analysis_lossy/", "lossy_compression_analysis_scalar.csv"))
-    scalar_analyzer.main_alpha = 0
-    scalar_analyzer.show_x_std = False
-    scalar_analyzer.sort_by_average = True
-    scalar_analyzer.show_individual_samples = False
-    scalar_analyzer.show_global = False
 
-    plot_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plots", "plots_lossy")
-    column_properties = exp.joined_column_to_properties
-    column_properties["pae"].plot_max = 10
-    scalar_analyzer.get_df(
-        full_df=df,
-        target_columns=scalar_columns,
-        column_to_properties=exp.joined_column_to_properties,
-        group_by="task_label",
-        selected_render_modes={"histogram"},
-        output_plot_dir=plot_dir,
-        fig_height=8,
-        show_grid=True,
-    )
+    exp.column_to_properties["pae"].plot_max = 10
 
     twoscalar_analyzer = enb.aanalysis.TwoNumericAnalyzer(
         csv_support_path=os.path.join(
@@ -246,9 +241,4 @@ if __name__ == '__main__':
         column_to_properties=exp.joined_column_to_properties,
         group_by=task_families,
         selected_render_modes={"line"},
-        output_plot_dir=plot_dir,
-        show_grid=True,
-    )
-
-    with enb.logger.message_context("Saving plots to PNG"):
-        enb.aanalysis.pdf_to_png("plots", "png_plots")
+        show_grid=True)

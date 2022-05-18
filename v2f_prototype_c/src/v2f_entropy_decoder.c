@@ -10,6 +10,7 @@
 
 #include <assert.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "log.h"
 #include "errors.h"
@@ -35,11 +36,11 @@ v2f_error_t v2f_entropy_decoder_create(
         log_error("decoder: bytes_per_sample = %d", (int) bytes_per_sample);
         return V2F_E_INVALID_PARAMETER;
     }
+
     uint32_t total_node_count = 0;
     for (uint32_t r = 0; r < root_count; r++) {
         total_node_count += roots[r]->root_entry_count;
     }
-
 
     for (uint64_t i = 0; i < root_count; i++) {
         if (roots[i]->entries_by_index == NULL
@@ -79,6 +80,7 @@ v2f_error_t v2f_entropy_decoder_create(
     decoder->roots = roots;
     decoder->root_count = root_count;
     decoder->current_root = roots[0];
+    decoder->null_entry = NULL;
 
     return V2F_E_NONE;
 }
@@ -87,6 +89,10 @@ v2f_error_t v2f_entropy_decoder_destroy(v2f_entropy_decoder_t *const decoder) {
     if (decoder == NULL
         || decoder->bytes_per_word == 0 || decoder->roots == NULL) {
         return V2F_E_INVALID_PARAMETER;
+    }
+    if (decoder->null_entry != NULL) {
+        free(decoder->null_entry);
+        decoder->null_entry = NULL;
     }
     for (uint64_t i = 0; i < decoder->root_count; i++) {
         if (decoder->roots[i]->entries_by_index == NULL) {

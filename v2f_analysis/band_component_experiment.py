@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""Experiment where the 4-horizontal-region images are considered to have 4 bands, each spanning one of the regions.
+"""
 
 import os
 import numpy as np
@@ -15,13 +17,12 @@ except ImportError as ex:
 
 from lossless_compression_experiment import LosslessExperiment
 
-"""import sys
-sys.path.insert(1, "./../")
-from forest_generation import banded_image_analysis"""
 
+# Base dir where the modified dataset is to be stored 
+banded_image_output_dir = "datasets_stacking/band_component_experiment"
 
 class HorizontalRegion:
-    """Abstract representation of a horizontal region spanning the a whole frame.
+    """Abstract representation of a horizontal region spanning the whole frame.
     """
 
     def __init__(self, y_min, y_max, name=None):
@@ -38,6 +39,9 @@ class HorizontalRegion:
 
 
 class BandRedundancyExperiment(enb.experiment.Experiment):
+    """
+    Generate Band Dataset. Stack 4 bands of an image
+    """
     regions = [HorizontalRegion(0, 1215, "band0"),
                HorizontalRegion(1216, 1299, "shadow0"),
                HorizontalRegion(1300, 2515, "band1"),
@@ -68,26 +72,16 @@ class BandRedundancyExperiment(enb.experiment.Experiment):
     def column_path_to_4band_image(self, index, row):
 
         file_path, task_name = index
-        # task = self.tasks_by_name[task_name]
         image_info_row = self.dataset_table_df.loc[enb.atable.indices_to_internal_loc(file_path)]
 
         img = enb.isets.load_array_bsq(file_or_path=file_path, image_properties_row=image_info_row)
-        self.regions.reverse()
-        for region in self.regions:
-            if "shadow" in region.name:
-                img = np.delete(img, slice(region.y_min, (region.y_max + 1)), 1)
 
         folder_path = file_path.split("/")[-2]
-        if not os.path.exists(f"./datasets_experiment"):
-            os.mkdir(f"./datasets_experiment")
-        if not os.path.exists(f"./datasets_experiment/4_components_{folder_path}"):
-            os.mkdir(f"./datasets_experiment/4_components_{folder_path}")
+        output_dir_path = f"{banded_image_output_dir}/{folder_path}"
+        os.makedirs(output_dir_path, exist_ok=True)
 
         aux = file_path.split("/")[-1].split("x")
-
-        path = "./datasets_experiment/4_components_" + folder_path + "/" + str(aux[0][:-1]) + "4x" + str(aux[1]) + "x1216" + str(
-            aux[2][4:])
-        print(path)
+        path = os.path.join(output_dir_path, f"{aux[0][:-1]}4x1280x{aux[1]}{aux[2][4:]}")
         enb.isets.dump_array_bsq(img, file_or_path=path)
 
         return path
@@ -99,22 +93,15 @@ class BandRedundancyTask(enb.experiment.ExperimentTask):
 
 
 if __name__ == '__main__':
-    options.persistence_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                           "persistence", "persistence_band_component_experiment_experiment.py")
+    options.persistence_dir = os.path.join("persistence", "persistence_band_component_experiment_experiment.py")
     tasks = [BandRedundancyTask()]
     experiment = BandRedundancyExperiment(tasks=tasks)
 
     df = experiment.get_df()
 
-    # If uncommented, it slows down computation but prevents ram hoarding and
-    # out of memory problems with large images:
-
-    options.base_tmp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tmp")
+    options.base_dataset_dir = banded_image_output_dir
+    options.base_tmp_dir = "tmp"
     options.chunk_size = 256
-
-    # # Non-parallel execution for more accurate time measurements
-    # options.ray_cpu_limit = 1
-    # options.repetitions = 3
 
     codecs = []
     families = []
@@ -124,6 +111,12 @@ if __name__ == '__main__':
     codecs.append(c)
     kakadu_family.add_task(c.name, c.label)
     families.append(kakadu_family)
+
+    jpeg_ls_family = enb.experiment.TaskFamily(label="JPEG-LS")
+    c = jpeg.JPEG_LS(max_error=0)
+    codecs.append(c)
+    jpeg_ls_family.add_task(c.name, c.label)
+    families.append(jpeg_ls_family)
 
     ccsds_family = enb.experiment.TaskFamily(label="CCSDS LCNL")
     c = lcnl.CCSDS_LCNL_GreenBook(
@@ -135,7 +128,7 @@ if __name__ == '__main__':
     families.append(ccsds_family)
 
     # Add lossless (q1) V2F codecs
-    v2fc_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prebuilt_codecs")
+    v2fc_dir = "prebuilt_codecs"
     v2fc_path_list = list(glob.glob(os.path.join(v2fc_dir, "q1", "**", "*treecount-*.v2fc"), recursive=True))
     for v2fc_path in v2fc_path_list:
         qstep = int(re.search(r"_qstep-(\d+)", os.path.basename(v2fc_path)).group(1))
@@ -150,7 +143,8 @@ if __name__ == '__main__':
             decorrelator_mode = v2f.V2F_C_DECORRELATOR_MODE_JPEGLS
             prediction_label = "JPEGLS"
         else:
-            raise ValueError(f"Unsupported decorrelator mode for {repr(os.path.abspath(v2fc_path))}")
+            print(f"Unsupported decorrelator mode for {repr(os.path.abspath(v2fc_path))}")
+            continue
         c = v2f.v2f_codecs.V2FCodec(
             v2fc_header_path=v2fc_path,
             qstep=qstep, decorrelator_mode=decorrelator_mode,
@@ -178,14 +172,14 @@ if __name__ == '__main__':
     # Scalar column analysis
     scalar_analyzer = enb.aanalysis.ScalarNumericAnalyzer(
         csv_support_path=os.path.join(
-            options.analysis_dir, "analysis_lossless/", "4_components_compression_analysis_scalar.csv"))
+            options.analysis_dir, "analysis_lossless", "4_components_compression_analysis_scalar.csv"))
     scalar_analyzer.show_x_std = True
     scalar_analyzer.bar_width_fraction = 0
     scalar_analyzer.sort_by_average = True
 
     twoscalar_analyzer = enb.aanalysis.TwoNumericAnalyzer(
         csv_support_path=os.path.join(
-            options.analysis_dir, "analysis_lossless/", "4_components_compression_analysis_twocolumn.csv"))
+            options.analysis_dir, "analysis_lossless", "4_components_compression_analysis_twocolumn.csv"))
 
     plot_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plots", "4_components_plots_lossless")
     for group_by in ["family_label"]:
@@ -227,5 +221,4 @@ if __name__ == '__main__':
             selected_render_modes={"histogram"},
             output_plot_dir=os.path.join(plot_dir, "corpus_split", corpus_name),
             plot_title=f"Grouped by {', '.join(s.replace('_', ' ') for s in group_by)}",
-            show_global=False,
-        )
+            show_global=False)

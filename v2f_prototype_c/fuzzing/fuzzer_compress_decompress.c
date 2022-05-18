@@ -67,7 +67,7 @@ void run_one_case(FILE *samples_file, FILE *header_file,
                   FILE *compressed_file, FILE *reconstructed_file) {
     // Compress
     if (v2f_file_compress_from_file(samples_file, header_file, compressed_file,
-                                    false, 0, false, 0, false, 0)
+                                    false, 0, false, 0, false, 0, 1, NULL, 0)
         != V2F_E_NONE) {
         log_info("Error compressing with the input data. That's fine.");
         return;
@@ -85,7 +85,7 @@ void run_one_case(FILE *samples_file, FILE *header_file,
     // Decompress
     if (v2f_file_decompress_from_file(
             compressed_file, header_file, reconstructed_file,
-            false, 0, false, 0, false, 0) != 0) {
+            false, 0, false, 0, false, 0, 1) != 0) {
         log_error("Error decompressing. It should not have failed.");
         abort();
     }

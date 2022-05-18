@@ -191,8 +191,7 @@ void test_compression_decompression_steps(void) {
                     v2f_decorrelator_t decorrelator;
                     FAIL_IF_FAIL(v2f_decorrelator_create(
                             &decorrelator, decorrelator_mode,
-                            max_sample_value));
-                    decorrelator.samples_per_row = 512;
+                            max_sample_value, 512));
 
                     // Build entropy codec
                     v2f_entropy_coder_t entropy_coder;

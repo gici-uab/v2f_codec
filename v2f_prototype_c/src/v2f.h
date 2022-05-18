@@ -195,9 +195,13 @@ typedef enum {
     V2F_C_DECORRELATOR_MODE_2_LEFT = 2,
     /// Decorrelator using JPEG-LS
     V2F_C_DECORRELATOR_MODE_JPEG_LS = 3,
+    /** Decorrelator using the average of two left, left, left-north
+     * and north samples
+     */
+    V2F_C_DECORRELATOR_MODE_FGIJ = 4,
 
     /// Number of available decorrelation modes
-    V2F_C_DECORRELATOR_MODE_COUNT = 4,
+    V2F_C_DECORRELATOR_MODE_COUNT = 5,
 } v2f_decorrelator_mode_t;
 
 /**
@@ -338,6 +342,9 @@ typedef struct {
     uint32_t root_count;
     /// Auxiliary pointer to the current root, useful for efficient decoding.
     v2f_entropy_decoder_root_t *current_root;
+
+    /// Auxiliary pointer to the the null entry, needed to avoid memory leaks.
+    v2f_entropy_coder_entry_t **null_entry;
 } v2f_entropy_decoder_t;
 
 /// @name Compressor definitions
@@ -436,6 +443,16 @@ typedef enum {
  * @param decorrelator_mode if @a overwrite_decorrelator_mode is true,
  *   this is the decorrelation mode empoyed during compression. Otherwise,
  *   it is ignored.
+ * @param samples_per_row number of samples per row
+ * @param shadow_y_pairs if not NULL, it must be a non-empty array with an even number of integers
+ *   describing horizontal shadow regions. The format of the array must be
+ *   start1,end1,start2,end2,...,startN,endN
+ *   where the first shadow region is at rows (y-positions) start1 to end1 (both included)
+ *   and so on. Shadow regions must be provided from lower to higher values of y,
+ *   and there can be no overlap between them.
+ * @param y_shadow_count number of y shadow regions. If y_shadow_count > 1,
+ *   then the shadow_y_pairs is expected not to be NULL and to contain exactly
+ *   twice as many elements. If shadow_y_paris is NULL, then y_shadow_count must be 0.
  *
  * @return 0 if and only if compression was successful.
  */
@@ -449,7 +466,10 @@ int v2f_file_compress_from_path(
         bool overwrite_qstep,
         v2f_sample_t step_size,
         bool overwrite_decorrelator_mode,
-        v2f_decorrelator_mode_t decorrelator_mode);
+        v2f_decorrelator_mode_t decorrelator_mode,
+        v2f_sample_t samples_per_row,
+        uint32_t* shadow_y_pairs,
+        uint32_t y_shadow_count);
 
 /**
  * Compresses an open file into another, using an open header file.
@@ -479,6 +499,15 @@ int v2f_file_compress_from_path(
  * @param decorrelator_mode if @a overwrite_decorrelator_mode is true,
  *   this is the decorrelation mode empoyed during compression. Otherwise,
  *   it is ignored.
+ * @param samples_per_row number of samples per row
+ * @param shadow_y_pairs if not NULL, it must be a non-empty array with an even number of integers
+ *   describing horizontal shadow regions. The format of the array must be
+ *   start1,end1,start2,end2,...,startN,endN
+ *   where the first shadow region is at rows (y-positions) start1 to end1 (both included)
+ *   and so on.
+ * @param y_shadow_count number of y shadow regions. If y_shadow_count > 1,
+ *   then the shadow_y_pairs is expected not to be NULL and to contain exactly
+ *   twice as many elements. If shadow_y_paris is NULL, then y_shadow_count must be 0.
  *
  * @return 0 if and only if compression was successful
  */
@@ -492,7 +521,10 @@ int v2f_file_compress_from_file(
         bool overwrite_qstep,
         v2f_sample_t step_size,
         bool overwrite_decorrelator_mode,
-        v2f_decorrelator_mode_t decorrelator_mode);
+        v2f_decorrelator_mode_t decorrelator_mode,
+        v2f_sample_t samples_per_row,
+        uint32_t* shadow_y_pairs,
+        uint32_t y_shadow_count);
 
 /**
  * Decompress a file @a compressed_file_path produced by @ref v2f_file_compress_from_path,
@@ -524,6 +556,7 @@ int v2f_file_compress_from_file(
  * @param decorrelator_mode if @a overwrite_decorrelator_mode is true,
  *   this is the decorrelation mode empoyed during decompression.
  *   Otherwise, it is ignored.
+ * @param samples_per_row number of samples per row
  *
  * @return 0 if and only if decompression was successful.
  */
@@ -537,7 +570,8 @@ int v2f_file_decompress_from_path(
         bool overwrite_qstep,
         v2f_sample_t step_size,
         bool overwrite_decorrelator_mode,
-        v2f_decorrelator_mode_t decorrelator_mode);
+        v2f_decorrelator_mode_t decorrelator_mode,
+        v2f_sample_t samples_per_row);
 
 /**
  * Decompresses @a compressed_file into @a reconstructed_file
@@ -565,6 +599,7 @@ int v2f_file_decompress_from_path(
  * @param decorrelator_mode if @a overwrite_decorrelator_mode is true,
  *   this is the decorrelation mode empoyed during decompression.
  *   Otherwise, it is ignored.
+ * @param samples_per_row number of samples per row
  *
  * @return 0 if and only if decompression was successful.
  */
@@ -578,6 +613,7 @@ int v2f_file_decompress_from_file(
         bool overwrite_qstep,
         v2f_sample_t step_size,
         bool overwrite_decorrelator_mode,
-        v2f_decorrelator_mode_t decorrelator_mode);
+        v2f_decorrelator_mode_t decorrelator_mode,
+        v2f_sample_t samples_per_row);
 
 #endif /* V2F_H */

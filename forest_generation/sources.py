@@ -53,7 +53,7 @@ class Source:
             assert all(s.p >= 0 for s in symbols), f"A negative probability was found among the input symbols."
 
         for i in range(len(symbols), -1):
-            assert symbols[i].p >= symbols[i+1].p, f"Symbols should be in order of probability"
+            assert symbols[i].p >= symbols[i + 1].p, f"Symbols should be in order of probability"
 
         self.symbols = symbols
         self.affix = affix

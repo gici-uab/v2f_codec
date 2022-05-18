@@ -17,14 +17,13 @@ import enb
 from enb.config import options
 from ctypes import *
 import pandas as pd
-import seaborn as sns
 import matplotlib.pyplot as plt
 
 analyzed_block_sizes = [64, 128, 256, 512]
 analyzed_symbol_list = list(range(4, 32))
 
 # Set to False to avoid performing a KL analysis.
-ADD_KL_ANALYSIS = False 
+ADD_KL_ANALYSIS = False
 
 
 class HorizontalRegion:
@@ -48,6 +47,9 @@ class SatellogicRegionsTable(enb.isets.ImagePropertiesTable):
     """Class to analyze image properties that present distinct horizontal regions
     of 100% of the width, stacked along the vertical axis.
     """
+    summary_csv_path = os.path.relpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), f"persistence_summary",
+                                    f"persistence_summary_prediction.csv"),
+                                       enb.config.options.project_root)
 
     def get_df(self, target_indices=None, target_columns=None,
                fill=True, overwrite=None,
@@ -57,15 +59,12 @@ class SatellogicRegionsTable(enb.isets.ImagePropertiesTable):
                                   fill=fill, overwrite=overwrite,
                                   chunk_size=chunk_size)
 
-        summary_csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"persistence_summary",
-                                        f"persistence_summary_prediction.csv")
-
         region_summary_table = RegionSummaryTable(
             full_df=joint_df,
             column_to_properties=SatellogicRegionsTable.column_to_properties,
             group_by="version_name",
             include_all_group=True,
-            csv_support_path=summary_csv_path
+            csv_support_path=self.summary_csv_path
         )
         rst_df = region_summary_table.get_df()
 
@@ -108,15 +107,14 @@ class SatellogicRegionsTable(enb.isets.ImagePropertiesTable):
             for i in range(joint_df["kl_divergence_n_symbols_full_image"].shape[0]):
                 kl_divergence.append([kl_divergence_n_symbols_dict[n][i] for n in num_symbols])
                 kl_divergence[i] = dict(zip(num_symbols, kl_divergence[i]))
-    
+
             joint_df["kl_divergence_n_symbols_full_image"] = kl_divergence
-    
+
             for i in range(joint_df["kl_divergence_inverse_n_symbols_full_image"].shape[0]):
                 kl_divergence_inverse.append([kl_divergence_inverse_n_symbols_dict[n][i] for n in num_symbols])
                 kl_divergence_inverse[i] = dict(zip(num_symbols, kl_divergence_inverse[i]))
-    
-            joint_df["kl_divergence_inverse_n_symbols_full_image"] = kl_divergence_inverse
 
+            joint_df["kl_divergence_inverse_n_symbols_full_image"] = kl_divergence_inverse
 
         for r in self.regions:
             sum_prob = {}
@@ -132,37 +130,39 @@ class SatellogicRegionsTable(enb.isets.ImagePropertiesTable):
                          if symbol_value in ip else 0
                          for symbol_value in avg_symbol_to_p.keys()])
                 )
-    
+
                 kl_divergence_n_symbols_dict = {}
                 kl_divergence_inverse_n_symbols_dict = {}
                 for n in num_symbols:
                     kl_divergence_n_symbols_dict[n] = joint_df[f"symbol_prob_{r.name}"] \
-                        .apply(lambda ip: {k: v / sum(dict(collections.Counter(ip).most_common(n)).values()) for (k, v) in
-                                           dict(collections.Counter(ip).most_common(n)).items()}) \
+                        .apply(
+                        lambda ip: {k: v / sum(dict(collections.Counter(ip).most_common(n)).values()) for (k, v) in
+                                    dict(collections.Counter(ip).most_common(n)).items()}) \
                         .apply(
                         lambda ip: sum([ip[symbol_value] * math.log2(ip[symbol_value] / avg_symbol_to_p[symbol_value])
                                         if symbol_value in ip else 0
                                         for symbol_value in avg_symbol_to_p.keys()]))
                     kl_divergence_inverse_n_symbols_dict[n] = joint_df[f"symbol_prob_{r.name}"] \
-                        .apply(lambda ip: {k: v / sum(dict(collections.Counter(ip).most_common(n)).values()) for (k, v) in
-                                           dict(collections.Counter(ip).most_common(n)).items()}) \
+                        .apply(
+                        lambda ip: {k: v / sum(dict(collections.Counter(ip).most_common(n)).values()) for (k, v) in
+                                    dict(collections.Counter(ip).most_common(n)).items()}) \
                         .apply(lambda ip: sum(
                         [avg_symbol_to_p[symbol_value] * math.log2(avg_symbol_to_p[symbol_value] / ip[symbol_value])
                          if symbol_value in ip else 0
                          for symbol_value in avg_symbol_to_p.keys()]))
-    
+
                 kl_divergence = []
                 kl_divergence_inverse = []
                 for i in range(joint_df[f"kl_divergence_n_symbols_{r.name}"].shape[0]):
                     kl_divergence.append([kl_divergence_n_symbols_dict[n][i] for n in num_symbols])
                     kl_divergence[i] = dict(zip(num_symbols, kl_divergence[i]))
-    
+
                 joint_df[f"kl_divergence_n_symbols_{r.name}"] = kl_divergence
-    
+
                 for i in range(joint_df[f"kl_divergence_inverse_n_symbols_{r.name}"].shape[0]):
                     kl_divergence_inverse.append([kl_divergence_inverse_n_symbols_dict[n][i] for n in num_symbols])
                     kl_divergence_inverse[i] = dict(zip(num_symbols, kl_divergence_inverse[i]))
-    
+
                 joint_df[f"kl_divergence_inverse_n_symbols_{r.name}"] = kl_divergence_inverse
 
             # Compute mean
@@ -199,18 +199,18 @@ class SatellogicRegionsTable(enb.isets.ImagePropertiesTable):
                     kl_divergence[n][j] = sum(
                         [img_prob[n][i] * math.log2(img_prob[n][i] / average_prob[i])
                          for i in range(0, 255) if i in img_prob[n].keys() and i in average_prob.keys()])
-    
+
             kl_divergence_list = []
             for i in range(joint_df["kl_divergence_by_block_size"].shape[0]):
                 kl_divergence_list.append([kl_divergence[n][i] for n in analyzed_block_sizes])
                 kl_divergence_list[i] = dict(zip(analyzed_block_sizes, kl_divergence_list[i]))
-    
+
             joint_df["kl_divergence_by_block_size"] = kl_divergence_list
-    
+
             for n in analyzed_block_sizes:
                 img_kl = []
                 for group, avg_symbol_to_p in zip(rst_df["group_label"], rst_df["avg_symbol_to_p"]):
-                    for index, row in joint_df[joint_df["version_name"]==group].iterrows():
+                    for index, row in joint_df[joint_df["version_name"] == group].iterrows():
                         image = enb.isets.load_array_bsq(file_or_path=row["file_path"], image_properties_row=row)
                         kl_divergence = []
                         for j in range(0, image.shape[1], n):
@@ -222,15 +222,16 @@ class SatellogicRegionsTable(enb.isets.ImagePropertiesTable):
                                 unique, counts = np.unique(block, return_counts=True)
                                 probabilities = dict(zip(unique, counts / block.size))
                                 assert abs(sum(probabilities.values()) - 1) < 1e-6, sum(probabilities.values())
-    
+
                                 kl_divergence_2.append(sum(
                                     [probabilities[x] * math.log(probabilities[x] / avg_symbol_to_p[x])
-                                     for x in range(0, 255) if x in probabilities.keys() and x in avg_symbol_to_p.keys()]))
-    
+                                     for x in range(0, 255) if
+                                     x in probabilities.keys() and x in avg_symbol_to_p.keys()]))
+
                             kl_divergence.append(kl_divergence_2)
                         img_kl.append(kl_divergence)
                 joint_df[f"kl_divergence_matrix_block_size_{n}_full_image_full_dataset"] = img_kl
-    
+
             for r in self.regions:
                 for n in analyzed_block_sizes:
                     img_kl = []
@@ -248,22 +249,19 @@ class SatellogicRegionsTable(enb.isets.ImagePropertiesTable):
                                     unique, counts = np.unique(block, return_counts=True)
                                     probabilities = dict(zip(unique, counts / block.size))
                                     assert abs(sum(probabilities.values()) - 1) < 1e-6, sum(probabilities.values())
-    
+
                                     kl_divergence_2.append(sum(
                                         [probabilities[x] * math.log(probabilities[x] / avg_symbol_to_p[x])
                                          for x in range(0, 255) if
                                          x in probabilities.keys() and x in avg_symbol_to_p.keys()]))
-    
+
                                 kl_divergence.append(kl_divergence_2)
                             img_kl.append(kl_divergence)
                     joint_df[f"kl_divergence_matrix_block_size_{n}_{r.name}_full_dataset"] = img_kl
 
-
         self.write_persistence(joint_df)
 
         return joint_df
-
-
 
     # For 4-band 5120x5120 images
     regions = [HorizontalRegion(0, 1199, "band0"),
@@ -424,9 +422,11 @@ class SatellogicRegionsTable(enb.isets.ImagePropertiesTable):
             row[f"kl_divergence_by_block_size"] = {}
 
         @enb.atable.column_function(
-            [enb.atable.ColumnProperties("kl_divergence_n_symbols_full_image", label="kl_divergence_n_symbols_full_image",
+            [enb.atable.ColumnProperties("kl_divergence_n_symbols_full_image",
+                                         label="kl_divergence_n_symbols_full_image",
                                          has_dict_values=True)]
-            + [enb.atable.ColumnProperties(f"kl_divergence_n_symbols_{r.name}", label=f"kl_divergence_n_symbols_{r.name}",
+            + [enb.atable.ColumnProperties(f"kl_divergence_n_symbols_{r.name}",
+                                           label=f"kl_divergence_n_symbols_{r.name}",
                                            has_dict_values=True) for r in regions])
         def set_kl_divergence_n_symbols(self, file_path, row):
             """Set a placeholder value for the KL divergence compared to the global pixel distribution.
@@ -435,7 +435,7 @@ class SatellogicRegionsTable(enb.isets.ImagePropertiesTable):
             row[f"kl_divergence_n_symbols_full_image"] = {}
             for r in self.regions:
                 row[f"kl_divergence_n_symbols_{r.name}"] = {}
-    
+
         @enb.atable.column_function(
             [enb.atable.ColumnProperties("kl_divergence_inverse_n_symbols_full_image",
                                          label="kl_divergence_inverse_n_symbols_full_image",
@@ -450,7 +450,7 @@ class SatellogicRegionsTable(enb.isets.ImagePropertiesTable):
             row[f"kl_divergence_inverse_n_symbols_full_image"] = {}
             for r in self.regions:
                 row[f"kl_divergence_inverse_n_symbols_{r.name}"] = {}
-    
+
         @enb.atable.column_function(
             [enb.atable.ColumnProperties(f"kl_divergence_matrix_block_size_{n}_full_image",
                                          label=f"kl_divergence_matrix_block_size_{n}_full_image",
@@ -464,7 +464,7 @@ class SatellogicRegionsTable(enb.isets.ImagePropertiesTable):
             + [[enb.atable.ColumnProperties(f"kl_divergence_matrix_block_size_{n}_{r.name}_full_dataset",
                                             label=f"kl_divergence_matrix_block_size_{n}_{r.name}_full_dataset",
                                             has_dict_values=False) for n in analyzed_block_sizes] for r in regions]
-    
+
             + [enb.atable.ColumnProperties(f"energy_matrix_block_size_{n}_full_image",
                                            label=f"energy_matrix_block_size_{n}_full_image",
                                            has_dict_values=False) for n in analyzed_block_sizes]
@@ -473,24 +473,24 @@ class SatellogicRegionsTable(enb.isets.ImagePropertiesTable):
                                            has_dict_values=False) for n in analyzed_block_sizes]
         )
         def set_symbol_matrix_kl_energy_entropy_by_block(self, file_path, row):
-    
+
             image = enb.isets.load_array_bsq(file_or_path=file_path, image_properties_row=row)
-    
+
             unique, counts = np.unique(image, return_counts=True)
             image_prob = dict(zip(unique, counts / image.size))
-    
+
             for n in analyzed_block_sizes:
                 row[f"energy_matrix_block_size_{n}_full_image"] = []
                 row[f"entropy_matrix_block_size_{n}_full_image"] = []
                 row[f"kl_divergence_matrix_block_size_{n}_full_image"] = []
                 row[f"kl_divergence_matrix_block_size_{n}_full_image_full_dataset"] = []
-    
+
                 for i in range(0, image.shape[0], n):
                     energy_2 = []
                     entropy_2 = []
                     kl_divergence_2 = []
                     full_2 = []
-    
+
                     for j in range(0, image.shape[1], n):
                         block = image[i:i + n, j:j + n, :].flatten()
                         if block.size < (n * n) / 2:
@@ -498,37 +498,37 @@ class SatellogicRegionsTable(enb.isets.ImagePropertiesTable):
                         unique, counts = np.unique(block, return_counts=True)
                         probabilities = dict(zip(unique, counts / block.size))
                         assert abs(sum(probabilities.values()) - 1) < 1e-6, sum(probabilities.values())
-    
+
                         energy_2.append(sum([probabilities[symbol_value] ** 2
-                                                       for symbol_value in probabilities.keys()]))
-    
+                                             for symbol_value in probabilities.keys()]))
+
                         entropy_2.append(-sum([probabilities[symbol_value] * math.log2(probabilities[symbol_value])
                                                for symbol_value in probabilities.keys()]))
-    
+
                         kl_divergence_2.append(sum(
                             [probabilities[i] * math.log2(probabilities[i] / image_prob[i])
                              for i in range(0, 255) if i in probabilities.keys() and i in image_prob.keys()]))
-    
+
                         full_2.append(0)
-    
+
                     row[f"energy_matrix_block_size_{n}_full_image"].append(energy_2)
                     row[f"entropy_matrix_block_size_{n}_full_image"].append(entropy_2)
                     row[f"kl_divergence_matrix_block_size_{n}_full_image"].append(kl_divergence_2)
                     row[f"kl_divergence_matrix_block_size_{n}_full_image_full_dataset"].append(full_2)
-    
+
             for r in self.regions:
                 img_region = image[:, r.y_min:r.y_max + 1, :]
                 unique_values, unique_count = np.unique(img_region, return_counts=True)
                 region_prob = dict(zip(unique_values, unique_count / img_region.size))
-    
+
                 for n in analyzed_block_sizes:
                     row[f"kl_divergence_matrix_block_size_{n}_{r.name}"] = []
                     row[f"kl_divergence_matrix_block_size_{n}_{r.name}_full_dataset"] = []
-    
+
                     for i in range(0, img_region.shape[0], n):
                         kl_divergence_2 = []
                         full_2 = []
-    
+
                         for j in range(0, img_region.shape[1], n):
                             block = img_region[i:i + n, j:j + n, :].flatten()
                             if block.size < (n * n) / 2:
@@ -536,19 +536,15 @@ class SatellogicRegionsTable(enb.isets.ImagePropertiesTable):
                             unique, counts = np.unique(block, return_counts=True)
                             probabilities = dict(zip(unique, counts / block.size))
                             assert abs(sum(probabilities.values()) - 1) < 1e-6, sum(probabilities.values())
-    
+
                             kl_divergence_2.append(sum(
                                 [probabilities[i] * math.log2(probabilities[i] / region_prob[i])
                                  for i in range(0, 255) if i in probabilities.keys() and i in region_prob.keys()]))
-    
+
                             full_2.append(0)
-    
+
                         row[f"kl_divergence_matrix_block_size_{n}_{r.name}"].append(kl_divergence_2)
                         row[f"kl_divergence_matrix_block_size_{n}_{r.name}_full_dataset"].append(full_2)
-    
-                    """plt.clf()
-                    kl_heatmap = sns.heatmap(kl_divergence).get_figure()
-                    kl_heatmap.savefig(f"./kl_plots/kl_heatmap_block_size_{n}_{r.name}_image_{file_path.split('/')[-1]}.png")"""
 
     @enb.atable.column_function(
         [enb.atable.ColumnProperties("missing_probabilities_n_symbols_full_image",
@@ -588,16 +584,15 @@ class SatellogicRegionsTable(enb.isets.ImagePropertiesTable):
     def column_version_name(self, index, row):
         """Guess the name of the versioning class given the input path.
         """
-        # A little curation before returning the generated data
-        version_name = os.path.basename(os.path.dirname(os.path.dirname(index)))
-        replacement_dict = {"satellogic": "(Original)",
-                            "shadow_out": "(Quantized, removed shadows)",
-                            "W": r"W prediction: $\hat{s}_{x,y} = s_{x-1,y}$",
-                            "IJ": r"W1,W2 prediction: $\hat{s}_{x,y} = \left\lceil \frac{s_{x-1,y} + s_{x-2,y} + 1}{2} \right\rceil$",
-                            "JG": r"W,N prediction: $\hat{s}_{x,y} = \left\lceil \frac{s_{x-1,y} + s_{x,y-1} + 1}{2} \right\rceil$"}
-        for k, v in replacement_dict.items():
-            version_name = version_name.replace(k, v)
-        return version_name
+        
+        for cls in PredictorVersion.__subclasses__():
+            if cls.version_name in index.split(os.sep):
+                return cls.version_name
+            elif "shadow_out" in index.split(os.sep):
+                return "shadow_out"
+        else:        
+            raise ValueError(f"Cannot determine predictor version for {index}")
+
 
 class RegionSummaryTable(enb.atable.SummaryTable):
     """Summary table for SatellogicRegionsTable.
@@ -623,6 +618,18 @@ class RegionSummaryTable(enb.atable.SummaryTable):
             sum_prob = dict(collections.Counter(sum_prob) + collections.Counter(img_prob))
         return {k: v / len(df) for (k, v) in sum_prob.items()}
 
+    def column_avg_symbol_to_p_noshadow(self, index, row):
+        """Calculate the average symbol probability of all images, not considering the shadow regions.
+        Note that small and large images contribute equally to
+        the average.
+        """
+
+        df = self.label_to_df[index]
+        sum_prob = {}
+        for img_prob in df["symbol_prob_noshadow"]:
+            sum_prob = dict(collections.Counter(sum_prob) + collections.Counter(img_prob))
+        return {k: v / len(df) for (k, v) in sum_prob.items()}
+
     if ADD_KL_ANALYSIS:
         @enb.atable.column_function(
             [enb.atable.ColumnProperties("kl_divergence_full_image",
@@ -635,18 +642,18 @@ class RegionSummaryTable(enb.atable.SummaryTable):
             """Calculate the average kl-divergence of all images for full image and each region.
             """
             df = self.label_to_df[index]
-    
+
             sum_kl = 0
             for kl in df["kl_divergence_full_image"]:
                 sum_kl += kl
             row["kl_divergence_full_image"] = sum_kl / len(df)
-    
+
             for r in self.regions:
                 sum_kl = 0
                 for kl in df[f"kl_divergence_{r.name}"]:
                     sum_kl += kl
                 row[f"kl_divergence_{r.name}"] = sum_kl / len(df)
-    
+
         @enb.atable.column_function(
             [enb.atable.ColumnProperties("kl_divergence_by_block_size",
                                          label="kl_divergence_by_block_size",
@@ -655,27 +662,29 @@ class RegionSummaryTable(enb.atable.SummaryTable):
             """Calculate the following kl-divergence full image for all images
             """
             df = self.label_to_df[index]
-    
+
             sum_kl = {}
             for img_prob in df["kl_divergence_by_block_size"]:
                 sum_kl = dict(collections.Counter(sum_kl) + collections.Counter(img_prob))
             row["kl_divergence_by_block_size"] = {k: v / len(df) for (k, v) in sum_kl.items()}
-    
+
         @enb.atable.column_function(
-            [enb.atable.ColumnProperties("kl_divergence_n_symbols_full_image", label="kl_divergence_n_symbols_full_image",
+            [enb.atable.ColumnProperties("kl_divergence_n_symbols_full_image",
+                                         label="kl_divergence_n_symbols_full_image",
                                          has_dict_values=True)]
-            + [enb.atable.ColumnProperties(f"kl_divergence_n_symbols_{r.name}", label=f"kl_divergence_n_symbols_{r.name}",
+            + [enb.atable.ColumnProperties(f"kl_divergence_n_symbols_{r.name}",
+                                           label=f"kl_divergence_n_symbols_{r.name}",
                                            has_dict_values=True) for r in regions])
         def column_kl_divergence_n_symbols(self, index, row):
             """Calculate the following kl-divergence full image for all images
             """
             df = self.label_to_df[index]
-    
+
             sum_kl = {}
             for img_prob in df["kl_divergence_n_symbols_full_image"]:
                 sum_kl = dict(collections.Counter(sum_kl) + collections.Counter(img_prob))
             row["kl_divergence_n_symbols_full_image"] = {k: v / len(df) for (k, v) in sum_kl.items()}
-    
+
             for r in self.regions:
                 sum_kl = {}
                 for img_prob in df[f"kl_divergence_n_symbols_{r.name}"]:
@@ -702,12 +711,14 @@ class RegionSummaryTable(enb.atable.SummaryTable):
             row[f"symbol_prob_{r.name}"] = {k: v / len(df) for (k, v) in sum_prob.items()}
 
 
-def map_predicted_sample(sample, prediction, max_sample_value):
+def map_predicted_sample(sample, prediction, max_sample_value, qstep=None):
     """Python implementation of the reversible, isorange signed-to-unsigned mapping
     applied to all prediction errors before entropy coding in the C99 V2F codec prototype.
     """
     assert prediction <= max_sample_value
     prediction_difference = sample - prediction
+    if qstep is not None and qstep != 1:
+        prediction_difference = prediction_difference // qstep
     diff_to_max = max_sample_value - prediction
     closer_to_max = diff_to_max < prediction
     theta = (closer_to_max * diff_to_max) + ((not closer_to_max) * prediction)
@@ -738,6 +749,36 @@ class WPredictorVersion(PredictorVersion):
     """
     version_name = "W"
 
+    def __init__(self, original_base_dir, version_base_dir, qstep=1):
+        assert qstep == int(qstep) and qstep > 0, f"Invalid qstep {qstep}"
+        super().__init__(original_base_dir=original_base_dir, version_base_dir=version_base_dir)
+        self.qstep = qstep
+
+    def version(self, input_path, output_path, row):
+        if options.verbose > 2:
+            print(f"[watch] {self.__class__.__name__}::{input_path}->{output_path}={(input_path, output_path)}")
+
+        img = enb.isets.load_array_bsq(file_or_path=input_path, image_properties_row=row)
+        if self.qstep != 1:
+            img = img // self.qstep
+
+        predictions = np.zeros((img.shape[0], img.shape[1], img.shape[2]), dtype=np.int64)
+        maximum = 2 ** (8 * row['bytes_per_sample'])
+        predictions[1:, :, :] = img[:-1, :, :]
+        residuals = np.vectorize(map_predicted_sample)(img, predictions, maximum).astype(np.uint8)
+        enb.isets.dump_array_bsq(residuals, output_path)
+
+
+class WPredictorVersionPQ(PredictorVersion):
+    """West Predictor-Quantization
+    """
+    version_name = "W_PQ"
+
+    def __init__(self, original_base_dir, version_base_dir, qstep=1):
+        assert qstep == int(qstep) and qstep > 0, f"Invalid qstep {qstep}"
+        super().__init__(original_base_dir=original_base_dir, version_base_dir=version_base_dir)
+        self.qstep = qstep
+
     def version(self, input_path, output_path, row):
         if options.verbose > 2:
             print(f"[watch] {self.__class__.__name__}::{input_path}->{output_path}={(input_path, output_path)}")
@@ -746,7 +787,8 @@ class WPredictorVersion(PredictorVersion):
         predictions = np.zeros((img.shape[0], img.shape[1], img.shape[2]), dtype=np.int64)
         maximum = 2 ** (8 * row['bytes_per_sample'])
         predictions[1:, :, :] = img[:-1, :, :]
-        residuals = np.vectorize(map_predicted_sample)(img, predictions, maximum).astype(np.uint8)
+        residuals = np.vectorize(map_predicted_sample)(img, predictions, maximum, self.qstep).astype(np.uint8)
+
         enb.isets.dump_array_bsq(residuals, output_path)
 
 
@@ -754,6 +796,36 @@ class NPredictorVersion(PredictorVersion):
     """North predictor.
     """
     version_name = "N"
+
+    def __init__(self, original_base_dir, version_base_dir, qstep=1):
+        assert qstep == int(qstep) and qstep > 0, f"Invalid qstep {qstep}"
+        super().__init__(original_base_dir=original_base_dir, version_base_dir=version_base_dir)
+        self.qstep = qstep
+
+    def version(self, input_path, output_path, row):
+        if options.verbose > 2:
+            print(f"[watch] {self.__class__.__name__}::{input_path}->{output_path}={(input_path, output_path)}")
+
+        img = enb.isets.load_array_bsq(file_or_path=input_path, image_properties_row=row)
+        if self.qstep != 1:
+            img = img // self.qstep
+
+        predictions = np.zeros((img.shape[0], img.shape[1], img.shape[2]), dtype=np.int64)
+        maximum = 2 ** (8 * row["bytes_per_sample"])
+        predictions[:, 1:, :] = img[:, :-1, :]
+        residuals = np.vectorize(map_predicted_sample)(img, predictions, maximum).astype(np.uint8)
+        enb.isets.dump_array_bsq(residuals, output_path)
+
+
+class NPredictorVersionPQ(PredictorVersion):
+    """North predictor.
+    """
+    version_name = "N_PQ"
+
+    def __init__(self, original_base_dir, version_base_dir, qstep=1):
+        assert qstep == int(qstep) and qstep > 0, f"Invalid qstep {qstep}"
+        super().__init__(original_base_dir=original_base_dir, version_base_dir=version_base_dir)
+        self.qstep = qstep
 
     def version(self, input_path, output_path, row):
         if options.verbose > 2:
@@ -763,7 +835,8 @@ class NPredictorVersion(PredictorVersion):
         predictions = np.zeros((img.shape[0], img.shape[1], img.shape[2]), dtype=np.int64)
         maximum = 2 ** (8 * row["bytes_per_sample"])
         predictions[:, 1:, :] = img[:, :-1, :]
-        residuals = np.vectorize(map_predicted_sample)(img, predictions, maximum).astype(np.uint8)
+        residuals = np.vectorize(map_predicted_sample)(img, predictions, maximum, self.qstep).astype(np.uint8)
+
         enb.isets.dump_array_bsq(residuals, output_path)
 
 
@@ -771,6 +844,36 @@ class NWPredictorVersion(PredictorVersion):
     """North-West predictor.
     """
     version_name = "NW"
+
+    def __init__(self, original_base_dir, version_base_dir, qstep=1):
+        assert qstep == int(qstep) and qstep > 0, f"Invalid qstep {qstep}"
+        super().__init__(original_base_dir=original_base_dir, version_base_dir=version_base_dir)
+        self.qstep = qstep
+
+    def version(self, input_path, output_path, row):
+        if options.verbose > 2:
+            print(f"[watch] {self.__class__.__name__}::{input_path}->{output_path}={(input_path, output_path)}")
+
+        img = enb.isets.load_array_bsq(file_or_path=input_path, image_properties_row=row)
+        if self.qstep != 1:
+            img = img // self.qstep
+
+        maximum = 2 ** (8 * row["bytes_per_sample"])
+        predictions = np.zeros((img.shape[0], img.shape[1], img.shape[2]), dtype=np.int64)
+        predictions[1:, 1:, :] = img[:-1, :-1, :]
+        residuals = np.vectorize(map_predicted_sample)(img, predictions, maximum).astype(np.uint8)
+        enb.isets.dump_array_bsq(residuals, output_path)
+
+
+class NWPredictorVersionPQ(PredictorVersion):
+    """North-West predictor.
+    """
+    version_name = "NW_PQ"
+
+    def __init__(self, original_base_dir, version_base_dir, qstep=1):
+        assert qstep == int(qstep) and qstep > 0, f"Invalid qstep {qstep}"
+        super().__init__(original_base_dir=original_base_dir, version_base_dir=version_base_dir)
+        self.qstep = qstep
 
     def version(self, input_path, output_path, row):
         if options.verbose > 2:
@@ -781,7 +884,8 @@ class NWPredictorVersion(PredictorVersion):
         maximum = 2 ** (8 * row["bytes_per_sample"])
         predictions = np.zeros((img.shape[0], img.shape[1], img.shape[2]), dtype=np.int64)
         predictions[1:, 1:, :] = img[:-1, :-1, :]
-        residuals = np.vectorize(map_predicted_sample)(img, predictions, maximum).astype(np.uint8)
+        residuals = np.vectorize(map_predicted_sample)(img, predictions, maximum, self.qstep).astype(np.uint8)
+
         enb.isets.dump_array_bsq(residuals, output_path)
 
 
@@ -791,7 +895,7 @@ class JLSPredictorVersion(PredictorVersion):
     version_name = "JLS"
     so_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "jpeg-ls.so")
 
-    def __init__(self, original_base_dir, version_base_dir):
+    def __init__(self, original_base_dir, version_base_dir, qstep=1):
         # Make sure that the JPEG-LS library is available, or make it on the spot
         if not os.path.exists(self.so_path):
             print("[W]arning: JPEG-LS library not found. Attempting to make...")
@@ -801,6 +905,44 @@ class JLSPredictorVersion(PredictorVersion):
                 raise Exception("[E]rror building JPEG-LS library. Status = {} != 0.\nInput=[{}].\nOutput=[{}]".format(
                     status, invocation, output))
         super().__init__(original_base_dir=original_base_dir, version_base_dir=version_base_dir)
+        self.qstep = qstep
+
+    def version(self, input_path, output_path, row):
+        if options.verbose > 2:
+            print(f"[watch] {self.__class__.__name__}::{input_path}->{output_path}={(input_path, output_path)}")
+
+        img = enb.isets.load_array_bsq(file_or_path=input_path, image_properties_row=row)
+        if self.qstep != 1:
+            img = img // self.qstep
+
+        c_int_p = POINTER(c_int)
+        jpeg_ls = CDLL(self.so_path)
+        jpeg_ls.jpeg_ls.restype = np.ctypeslib.ndpointer(dtype=c_int, shape=(img.shape[0], img.shape[1], img.shape[2]))
+        predictions = jpeg_ls.jpeg_ls(np.ascontiguousarray(img, dtype=np.uint32).ctypes.data_as(c_int_p),
+                                      img.shape[0], img.shape[1], img.shape[2])
+
+        maximum = 2 ** (8 * row["bytes_per_sample"])
+        residuals = np.vectorize(map_predicted_sample)(img, predictions, maximum).astype(np.uint8)
+        enb.isets.dump_array_bsq(residuals, output_path)
+
+
+class JLSPredictorVersionPQ(PredictorVersion):
+    """JPEG-LS predictor.
+    """
+    version_name = "JLS_PQ"
+    so_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "jpeg-ls.so")
+
+    def __init__(self, original_base_dir, version_base_dir, qstep=1):
+        # Make sure that the JPEG-LS library is available, or make it on the spot
+        if not os.path.exists(self.so_path):
+            print("[W]arning: JPEG-LS library not found. Attempting to make...")
+            invocation = f"make -f {os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Makefile')}"
+            status, output = subprocess.getstatusoutput(invocation)
+            if status != 0:
+                raise Exception("[E]rror building JPEG-LS library. Status = {} != 0.\nInput=[{}].\nOutput=[{}]".format(
+                    status, invocation, output))
+        super().__init__(original_base_dir=original_base_dir, version_base_dir=version_base_dir)
+        self.qstep = qstep
 
     def version(self, input_path, output_path, row):
         if options.verbose > 2:
@@ -808,14 +950,13 @@ class JLSPredictorVersion(PredictorVersion):
 
         img = enb.isets.load_array_bsq(file_or_path=input_path, image_properties_row=row)
         c_int_p = POINTER(c_int)
-        so_file_path = "./jpeg-ls.so"
-        jpeg_ls = CDLL(so_file_path)
+        jpeg_ls = CDLL(self.so_path)
         jpeg_ls.jpeg_ls.restype = np.ctypeslib.ndpointer(dtype=c_int, shape=(img.shape[0], img.shape[1], img.shape[2]))
         predictions = jpeg_ls.jpeg_ls(np.ascontiguousarray(img, dtype=np.uint32).ctypes.data_as(c_int_p),
                                       img.shape[0], img.shape[1], img.shape[2])
 
         maximum = 2 ** (8 * row["bytes_per_sample"])
-        residuals = np.vectorize(map_predicted_sample)(img, predictions, maximum).astype(np.uint8)
+        residuals = np.vectorize(map_predicted_sample)(img, predictions, maximum, self.qstep).astype(np.uint8)
         enb.isets.dump_array_bsq(residuals, output_path)
 
 
@@ -829,6 +970,48 @@ class IJPredictorVersion(PredictorVersion):
     (I+J)/2
     """
     version_name = "IJ"
+
+    def __init__(self, original_base_dir, version_base_dir, qstep=1):
+        assert qstep == int(qstep) and qstep > 0, f"Invalid qstep {qstep}"
+        super().__init__(original_base_dir=original_base_dir, version_base_dir=version_base_dir)
+        self.qstep = qstep
+
+    def version(self, input_path, output_path, row):
+        if options.verbose > 2:
+            print(f"[watch] {self.__class__.__name__}::{input_path}->{output_path}={(input_path, output_path)}")
+
+        img = enb.isets.load_array_bsq(file_or_path=input_path, image_properties_row=row)
+        if self.qstep != 1:
+            img = img // self.qstep
+
+        maximum = 2 ** (8 * row["bytes_per_sample"]) - 1
+
+        assert not row["float"], "Only integer data are supported for now."
+        img_aux = img.astype('int64')
+
+        predictions = np.zeros((img.shape[0], img.shape[1], img.shape[2]), dtype=np.int64)
+        # The +1 is to allow graceful rounding
+        predictions[2:, :, :] = (img_aux[:-2, :, :] + img_aux[1:-1, :, :] + 1) >> 1
+        residuals = np.vectorize(map_predicted_sample)(img, predictions, maximum).astype(
+            np.uint8 if row["bytes_per_sample"] == 1 else np.uint16)
+        enb.isets.dump_array_bsq(residuals, output_path)
+
+
+class IJPredictorVersionPQ(PredictorVersion):
+    """Predictor using the average of the two neighbors two the left of the one given.
+
+        A, B,   C, D
+        E, F,   G, H
+        I, J, [X], -
+
+    (I+J)/2
+    """
+    version_name = "IJ_PQ"
+
+    def __init__(self, original_base_dir, version_base_dir, qstep=1):
+        assert qstep == int(qstep) and qstep > 0, f"Invalid qstep {qstep}"
+        super().__init__(original_base_dir=original_base_dir, version_base_dir=version_base_dir)
+        self.qstep = qstep
 
     def version(self, input_path, output_path, row):
         if options.verbose > 2:
@@ -844,8 +1027,9 @@ class IJPredictorVersion(PredictorVersion):
         predictions = np.zeros((img.shape[0], img.shape[1], img.shape[2]), dtype=np.int64)
         # The +1 is to allow graceful rounding
         predictions[2:, :, :] = (img_aux[:-2, :, :] + img_aux[1:-1, :, :] + 1) >> 1
-        residuals = np.vectorize(map_predicted_sample)(img, predictions, maximum).astype(
+        residuals = np.vectorize(map_predicted_sample)(img, predictions, maximum, self.qstep).astype(
             np.uint8 if row["bytes_per_sample"] == 1 else np.uint16)
+
         enb.isets.dump_array_bsq(residuals, output_path)
 
 
@@ -859,6 +1043,48 @@ class JGPredictorVersion(PredictorVersion):
     (J+G)/2
     """
     version_name = "JG"
+
+    def __init__(self, original_base_dir, version_base_dir, qstep=1):
+        assert qstep == int(qstep) and qstep > 0, f"Invalid qstep {qstep}"
+        super().__init__(original_base_dir=original_base_dir, version_base_dir=version_base_dir)
+        self.qstep = qstep
+
+    def version(self, input_path, output_path, row):
+        if options.verbose > 2:
+            print(f"[watch] {self.__class__.__name__}::{input_path}->{output_path}={(input_path, output_path)}")
+
+        img = enb.isets.load_array_bsq(file_or_path=input_path, image_properties_row=row)
+        if self.qstep != 1:
+            img = img // self.qstep
+
+        maximum = 2 ** (8 * row["bytes_per_sample"]) - 1
+        assert not row["float"], \
+            "Only integer data are supported for now."
+        img_aux = img.astype('int64')
+
+        predictions = np.zeros((img.shape[0], img.shape[1], img.shape[2]), dtype=np.int64)
+        # The +1 is to allow graceful rounding
+        predictions[1:, 1:, :] = (img_aux[1:, :-1] + img_aux[:-1, 1:] + 1) >> 1
+        residuals = np.vectorize(map_predicted_sample)(img, predictions, maximum).astype(
+            np.uint8 if row["bytes_per_sample"] == 1 else np.uint16)
+        enb.isets.dump_array_bsq(residuals, output_path)
+
+
+class JGPredictorVersionPQ(PredictorVersion):
+    """Predictor using the average of two neighbors:
+
+        A, B, C, D
+        E, F, G, H
+        I, J, [X]
+
+    (J+G)/2
+    """
+    version_name = "JG_PQ"
+
+    def __init__(self, original_base_dir, version_base_dir, qstep=1):
+        assert qstep == int(qstep) and qstep > 0, f"Invalid qstep {qstep}"
+        super().__init__(original_base_dir=original_base_dir, version_base_dir=version_base_dir)
+        self.qstep = qstep
 
     def version(self, input_path, output_path, row):
         if options.verbose > 2:
@@ -874,12 +1100,13 @@ class JGPredictorVersion(PredictorVersion):
         predictions = np.zeros((img.shape[0], img.shape[1], img.shape[2]), dtype=np.int64)
         # The +1 is to allow graceful rounding
         predictions[1:, 1:, :] = (img_aux[1:, :-1] + img_aux[:-1, 1:] + 1) >> 1
-        residuals = np.vectorize(map_predicted_sample)(img, predictions, maximum).astype(
+        residuals = np.vectorize(map_predicted_sample)(img, predictions, maximum, self.qstep).astype(
             np.uint8 if row["bytes_per_sample"] == 1 else np.uint16)
+
         enb.isets.dump_array_bsq(residuals, output_path)
 
 
-class FGHIPredictorVersion(PredictorVersion):
+class EFGIPredictorVersion(PredictorVersion):
     """Predictor using the average of four neighbors:
 
         A, B, C, D
@@ -888,13 +1115,20 @@ class FGHIPredictorVersion(PredictorVersion):
 
     (F+G+H+I)/4
     """
-    version_name = "FGHI"
+    version_name = "EFGI"
+
+    def __init__(self, original_base_dir, version_base_dir, qstep=1):
+        assert qstep == int(qstep) and qstep > 0, f"Invalid qstep {qstep}"
+        super().__init__(original_base_dir=original_base_dir, version_base_dir=version_base_dir)
+        self.qstep = qstep
 
     def version(self, input_path, output_path, row):
         if options.verbose > 2:
             print(f"[watch] {self.__class__.__name__}::{input_path}->{output_path}={(input_path, output_path)}")
 
         img = enb.isets.load_array_bsq(file_or_path=input_path, image_properties_row=row)
+        if self.qstep != 1:
+            img = img // self.qstep
 
         maximum = 2 ** (8 * row["bytes_per_sample"]) - 1
 
@@ -914,6 +1148,46 @@ class FGHIPredictorVersion(PredictorVersion):
         enb.isets.dump_array_bsq(residuals, output_path)
 
 
+class EFGIPredictorVersionPQ(PredictorVersion):
+    """Predictor using the average of four neighbors:
+
+        A, B, C, D
+        E, F, G, H
+        I, J, [X]
+
+    (F+G+H+I)/4
+    """
+    version_name = "EFGI_PQ"
+
+    def __init__(self, original_base_dir, version_base_dir, qstep=1):
+        assert qstep == int(qstep) and qstep > 0, f"Invalid qstep {qstep}"
+        super().__init__(original_base_dir=original_base_dir, version_base_dir=version_base_dir)
+        self.qstep = qstep
+
+    def version(self, input_path, output_path, row):
+        if options.verbose > 2:
+            print(f"[watch] {self.__class__.__name__}::{input_path}->{output_path}={(input_path, output_path)}")
+
+        img = enb.isets.load_array_bsq(file_or_path=input_path, image_properties_row=row)
+
+        maximum = 2 ** (8 * row["bytes_per_sample"]) - 1
+
+        assert not row["float"], \
+            "Only integer data are supported for now."
+        img_aux = img.astype('int64')
+
+        predictions = np.zeros((img.shape[0], img.shape[1], img.shape[2]), dtype=np.int64)
+        predictions[2:, 1:, :] = (img_aux[2:, :-1, :]
+                                  + img_aux[1:-1, :-1, :]
+                                  + img_aux[:-2, :-1, :]
+                                  + img_aux[:-2, 1:, :]
+                                  + 2) >> 2
+        residuals = np.vectorize(map_predicted_sample)(img, predictions, maximum, self.qstep).astype(
+            np.uint8 if row["bytes_per_sample"] == 1 else np.uint16)
+
+        enb.isets.dump_array_bsq(residuals, output_path)
+
+
 class FGJPredictorVersion(PredictorVersion):
     """Predictor using the weighted average of three neighbors:
 
@@ -924,6 +1198,48 @@ class FGJPredictorVersion(PredictorVersion):
     (2*F+3*G+3*J)/8
     """
     version_name = "FGJ"
+
+    def __init__(self, original_base_dir, version_base_dir, qstep=1):
+        assert qstep == int(qstep) and qstep > 0, f"Invalid qstep {qstep}"
+        super().__init__(original_base_dir=original_base_dir, version_base_dir=version_base_dir)
+        self.qstep = qstep
+
+    def version(self, input_path, output_path, row):
+        if options.verbose > 2:
+            print(f"[watch] {self.__class__.__name__}::{input_path}->{output_path}={(input_path, output_path)}")
+
+        img = enb.isets.load_array_bsq(file_or_path=input_path, image_properties_row=row)
+        if self.qstep != 1:
+            img = img // self.qstep
+
+        maximum = 2 ** (8 * row["bytes_per_sample"]) - 1
+
+        assert not row["float"], \
+            "Only integer data are supported for now."
+        img_aux = img.astype('int64')
+
+        predictions = np.zeros((img.shape[0], img.shape[1], img.shape[2]), dtype=np.int64)
+        predictions[1:, 1:, :] = ((img_aux[:-1, :-1] << 1) + (3 * img_aux[:-1, 1:]) + (3 * img_aux[1:, :-1])
+                                  + 4) >> 3
+        residuals = np.vectorize(map_predicted_sample)(img, predictions, maximum).astype(np.uint8)
+        enb.isets.dump_array_bsq(residuals, output_path)
+
+
+class FGJPredictorVersionPQ(PredictorVersion):
+    """Predictor using the weighted average of three neighbors:
+
+        A, B, C, D
+        E, F, G, H
+        I, J, [X]
+
+    (2*F+3*G+3*J)/8
+    """
+    version_name = "FGJ_PQ"
+
+    def __init__(self, original_base_dir, version_base_dir, qstep=1):
+        assert qstep == int(qstep) and qstep > 0, f"Invalid qstep {qstep}"
+        super().__init__(original_base_dir=original_base_dir, version_base_dir=version_base_dir)
+        self.qstep = qstep
 
     def version(self, input_path, output_path, row):
         if options.verbose > 2:
@@ -940,7 +1256,8 @@ class FGJPredictorVersion(PredictorVersion):
         predictions = np.zeros((img.shape[0], img.shape[1], img.shape[2]), dtype=np.int64)
         predictions[1:, 1:, :] = ((img_aux[:-1, :-1] << 1) + (3 * img_aux[:-1, 1:]) + (3 * img_aux[1:, :-1])
                                   + 4) >> 3
-        residuals = np.vectorize(map_predicted_sample)(img, predictions, maximum).astype(np.uint8)
+        residuals = np.vectorize(map_predicted_sample)(img, predictions, maximum, self.qstep).astype(np.uint8)
+
         enb.isets.dump_array_bsq(residuals, output_path)
 
 
@@ -954,6 +1271,52 @@ class FGJIPredictorVersion(PredictorVersion):
     (F+G+J+I)/4
     """
     version_name = "FGJI"
+
+    def __init__(self, original_base_dir, version_base_dir, qstep=1):
+        assert qstep == int(qstep) and qstep > 0, f"Invalid qstep {qstep}"
+        super().__init__(original_base_dir=original_base_dir, version_base_dir=version_base_dir)
+        self.qstep = qstep
+
+    def version(self, input_path, output_path, row):
+        if options.verbose > 2:
+            print(f"[watch] {self.__class__.__name__}::{input_path}->{output_path}={(input_path, output_path)}")
+
+        img = enb.isets.load_array_bsq(file_or_path=input_path, image_properties_row=row)
+        if self.qstep != 1:
+            img = img // self.qstep
+
+        maximum = 2 ** (8 * row["bytes_per_sample"]) - 1
+
+        assert not row["float"], \
+            "Only integer data are supported for now."
+        img_aux = img.astype('int64')
+
+        predictions = np.zeros((img.shape[0], img.shape[1], img.shape[2]), dtype=np.int64)
+        predictions[2:, 1:, :] = (img_aux[:-2, 1:, :]
+                                  + img_aux[1:-1, :-1, :]
+                                  + img_aux[1:-1, 1:, :]
+                                  + img_aux[2:, :-1, :]
+                                  + 2) >> 2
+        residuals = np.vectorize(map_predicted_sample)(img, predictions, maximum).astype(
+            np.uint8 if row["bytes_per_sample"] == 1 else np.uint16)
+        enb.isets.dump_array_bsq(residuals, output_path)
+
+
+class FGJIPredictorVersionPQ(PredictorVersion):
+    """Predictor using the average of four neighbors:
+
+    A, B, C, D
+    E, F, G, H
+    I, J, [X]
+
+    (F+G+J+I)/4
+    """
+    version_name = "FGJI_PQ"
+
+    def __init__(self, original_base_dir, version_base_dir, qstep=1):
+        assert qstep == int(qstep) and qstep > 0, f"Invalid qstep {qstep}"
+        super().__init__(original_base_dir=original_base_dir, version_base_dir=version_base_dir)
+        self.qstep = qstep
 
     def version(self, input_path, output_path, row):
         if options.verbose > 2:
@@ -973,8 +1336,9 @@ class FGJIPredictorVersion(PredictorVersion):
                                   + img_aux[1:-1, 1:, :]
                                   + img_aux[2:, :-1, :]
                                   + 2) >> 2
-        residuals = np.vectorize(map_predicted_sample)(img, predictions, maximum).astype(
+        residuals = np.vectorize(map_predicted_sample)(img, predictions, maximum, self.qstep).astype(
             np.uint8 if row["bytes_per_sample"] == 1 else np.uint16)
+
         enb.isets.dump_array_bsq(residuals, output_path)
 
 
@@ -984,6 +1348,7 @@ class ShadowOutRegionVersion(PredictorVersion):
     1. All pixels are divided (with floor) by qstep.
     2. Image regions marked as shadow are set to constant zero.
     """
+    version_name = "shadow_out"
     regions_table = SatellogicRegionsTable()
 
     def __init__(self, original_base_dir, version_base_dir, qstep=1):
@@ -996,7 +1361,7 @@ class ShadowOutRegionVersion(PredictorVersion):
             print(f"[watch] {self.__class__.__name__}::{input_path}->{output_path}={(input_path, output_path)}")
 
         # Read original image
-        img = enb.isets.load_array_bsq(file_or_path=input_path, 
+        img = enb.isets.load_array_bsq(file_or_path=input_path,
                                        image_properties_row=row)
 
         # Remove the shadow regions
@@ -1047,3 +1412,7 @@ class SatellogicRegionExperiment(enb.icompression.LossyCompressionExperiment):
                                for r in content_regions)
         row[_column_name] = weighted_entropy * row.image_info_row["size_bytes"] \
                             / (row["compressed_size_bytes"] * 8)
+
+
+if __name__ == '__main__':
+    print("Module not callable. Run quantize_predict_analyze_makeforests.py instead.")
