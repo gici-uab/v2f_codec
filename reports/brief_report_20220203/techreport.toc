@@ -1,9 +1,0 @@
-\babel@toc {english}{}
-\contentsline {section}{\numberline {1}Qstep 1 (lossless)}{1}{section.1}%
-\contentsline {section}{\numberline {2}Qstep 2 (PAE 1)}{1}{section.2}%
-\contentsline {section}{\numberline {3}Qstep 3 (PAE 1)}{2}{section.3}%
-\contentsline {section}{\numberline {4}Qstep 4 (PAE 2)}{2}{section.4}%
-\contentsline {section}{\numberline {5}Qstep 5 (PAE 2)}{3}{section.5}%
-\contentsline {section}{\numberline {6}Qstep 6 (PAE 3)}{3}{section.6}%
-\contentsline {section}{\numberline {7}Qstep 7 (PAE 3)}{4}{section.7}%
-\contentsline {section}{\numberline {8}Qstep 8 (PAE 4)}{4}{section.8}%
