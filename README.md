@@ -19,7 +19,10 @@ The remainder of this page provides details on the design decisions and relevant
 aforementioned codec.
 
 This document and the compression system were developed by the Group on Interactive Coding of Images (GICI) of the 
-Universitat Autònoma de Barcelona (UAB) as a part of the Retos Colaboración RTC2019-007434-7 project.
+Universitat Autònoma de Barcelona (UAB) as a part of the Retos Colaboración RTC2019-007434-7 project, funded by MICINN
+
+![es-logo](http://gici.uab.cat/GiciWebPage/images/logo_micinnu_aei.png)
+![eu-logo](http://gici.uab.cat/GiciWebPage/images/logo_feder.png)
 
 ## State of the art
 
