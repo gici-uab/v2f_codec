@@ -7,7 +7,7 @@ regime, original data can be reconstructed with perfect fidelity. However, this 
 relatively large compressed data volumes. On the other hand, lossy data compression allows producing significantly smaller data
 volumes, at the cost of introducing some distortion between the reconstructed and original samples. 
 
-One important goal of the iquaflow tool is to be able to assess the impact of lossy compression from the perspective of the different
+One important goal of [the iquaflow tool](https://github.com/satellogic/iquaflow) is to be able to assess the impact of lossy compression from the perspective of the different
 analysis tasks for which the images are captured. Leveraging this information, compression performance can be optimized without
 compromising the scientific nor commercial value of the reconstructed data. To achieve this goal, a fully functional codec suited for
 space use is developed complementing the iquaflow toolbox. This codec provides both lossless and lossy compression regimes. More specifically,
